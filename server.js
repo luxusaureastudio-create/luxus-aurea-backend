@@ -41,10 +41,6 @@ app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS']
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/// SECONDO BLOCCO: Inizializzazione SDK e Connessioni
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GoogleAIFileManager } = require("@google/generative-ai/server");
-
 // FORZIAMO LA CHIAVE NUOVA DIRETTAMENTE NEL CODICE
 const MIA_CHIAVE = process.env.GEMINI_KEY;
 
