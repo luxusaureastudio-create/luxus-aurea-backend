@@ -21,7 +21,13 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 // --- INIZIALIZZAZIONI GLOBALI ---
-mongoose.connect(process.env.MONGO_URI);
+// Sostituisci la parte di connessione DB con questa versione diagnostica:
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log("✅ Connesso a MongoDB"))
+    .catch(err => {
+        console.error("❌ ERRORE CRITICO DB:", err);
+        process.exit(1); // Questo forza il log dell'errore su Render
+    });
 const upload = multer({ storage: multer.memoryStorage() });
 
 if(process.env.SENDGRID_API_KEY) {
@@ -107,29 +113,26 @@ app.post('/api/reset-password', async (req, res) => {
 app.get('/api/user-info', verifyToken, (req, res) => res.json({ credits: req.user.credits }));
 app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Report.find({ userId: req.user._id })));
 
-// --- ANALISI PDF (Sostituisci tutto il blocco) ---
+// Blocco Analisi PDF (Sostituisci il vecchio blocco con questo identico):
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
         
-        // Risoluzione dinamica per garantire che pdfParse sia una funzione
-        const parseFunction = (typeof pdfParse === 'function') ? pdfParse : (pdfParse.default || pdfParse);
+        // ESECUZIONE DIRETTA E SENZA FRONZOLI
+        const pdfData = await pdfParse(req.file.buffer); 
         
-        const pdfData = await parseFunction(req.file.buffer); 
-        const text = pdfData.text;
-        
-        if (!text || text.trim().length < 50) {
-            return res.status(400).json({ error: "PDF illeggibile o troppo corto" });
+        if (!pdfData.text || pdfData.text.length < 50) {
+            return res.status(400).json({ error: "PDF non leggibile" });
         }
 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent(`Analizza questa scheda: ${text}. Estrai: nome, cas, concentrazione, clp. Risposta solo JSON.`);
+        const result = await model.generateContent(`Analizza: ${pdfData.text}. Estrai: nome, cas, concentrazione, clp. Solo JSON.`);
         
         const jsonText = result.response.text().replace(/```json|```/g, "").trim();
         res.json({ analysis: JSON.parse(jsonText) });
     } catch (error) {
-        console.error("Errore Dettagliato:", error); 
-        res.status(500).json({ error: "Errore durante l'analisi: " + error.message });
+        console.error("ERRORE CRITICO:", error);
+        res.status(500).json({ error: "Errore interno server." });
     }
 });
 
