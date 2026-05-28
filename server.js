@@ -29,7 +29,7 @@ if (process.env.SENDGRID_API_KEY) {
 // Inizializzazione SDK Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
 const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-pro"
+    model: "gemini-1.5-flash"
 });
 
 // ==========================================
