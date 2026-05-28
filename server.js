@@ -20,7 +20,7 @@ const { GoogleAIFileManager } = require("@google/generative-ai/server");
 const MIA_CHIAVE = process.env.GEMINI_KEY
 
 const genAI = new GoogleGenerativeAI(MIA_CHIAVE);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // 👈 ECCO LA MAGIA
 const fileManager = new GoogleAIFileManager(MIA_CHIAVE);
 
 const app = express();
