@@ -1,19 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const app = express();
-const cors = require('cors');
-const multer = require('multer');
-const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
-const path = require('path');
-const bcrypt = require('bcrypt');
-const sgMail = require('@sendgrid/mail');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const fs = require('fs');
-const os = require('os');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GoogleAIFileManager } = require("@google/generative-ai/server");
-
 // 1. WEBHOOK - DEVE STARE QUI, PRIMA DI app.use(express.json())
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
@@ -35,6 +22,20 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     }
     res.json({ received: true });
 });
+const cors = require('cors');
+const multer = require('multer');
+const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
+const path = require('path');
+const bcrypt = require('bcrypt');
+const sgMail = require('@sendgrid/mail');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const fs = require('fs');
+const os = require('os');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleAIFileManager } = require("@google/generative-ai/server");
+
+
 
 // 2. CONFIGURAZIONI (SOLO UNA VOLTA!)
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
