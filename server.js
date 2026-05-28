@@ -3,7 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
-const pdfParse = require('pdf-parse');
+// Modifica la riga 6 del server.js in questo modo:
+const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
@@ -13,9 +14,12 @@ const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
 
 const app = express();
-app.use(cors()); 
-app.use(express.json());
-
+// Sostituisci la riga 14 del server.js con questa:
+app.use(cors({
+    origin: '*', // Per ora lasciamo '*' per testare, ma è meglio specificare l'URL del frontend
+    methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 // --- INIZIALIZZAZIONI GLOBALI ---
 mongoose.connect(process.env.MONGO_URI);
 const upload = multer({ storage: multer.memoryStorage() });
