@@ -3,15 +3,23 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
+const fs = require('fs');
+const os = require('os');
+
+// Inizializzazione SDK Gemini e File Manager Ufficiale
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleAIFileManager } = require("@google/generative-ai/server");
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const fileManager = new GoogleAIFileManager(process.env.GEMINI_KEY);
 
 const app = express();
-
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -25,12 +33,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 if (process.env.SENDGRID_API_KEY) {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
-
-// Inizializzazione SDK Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
-const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash"
-});
 
 // ==========================================
 // MODELLI DATABASE
@@ -50,7 +52,6 @@ const Report = mongoose.model('Report', new mongoose.Schema({
     analisiCompleta: Object
 }));
 
-// ✅ Nuovo Modello per la Gestione delle Sostanze e limiti SCL
 const Substance = mongoose.model('Substance', new mongoose.Schema({
     cas: { type: String, required: true },
     nome: { type: String, required: true },
@@ -105,29 +106,25 @@ app.get('/api/user-info', verifyToken, (req, res) => res.json({ credits: req.use
 app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Report.find({ userId: req.user._id })));
 
 // ==========================================
-// ROTTE API - ANALISI E REPORT
+// ROTTE API - ANALISI PDF (IL METODO DEFINITIVO)
 // ==========================================
-// ✅ CODICE DEFINITIVO PER LA LETTURA NATIVA DEL PDF CON GEMINI
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
+    let tempFilePath = '';
     try {
-        // 1. Controllo di sicurezza preliminare sul file e sui crediti dell'utente
         if (!req.file) return res.status(400).json({ error: "File mancante" });
-        if (req.user.credits <= 0) {
-            return res.status(403).json({ error: "Crediti insufficienti. Ricarica per continuare." });
-        }
-        
-        // 2. Trasformazione del buffer binario del PDF in stringa Base64
-        const pdfBase64 = req.file.buffer.toString('base64');
-        
-        // 3. Configurazione del file secondo le specifiche dell'SDK di Google
-        const pdfPart = {
-            inlineData: {
-                data: pdfBase64,
-                mimeType: "application/pdf"
-            }
-        };
+        if (req.user.credits <= 0) return res.status(403).json({ error: "Crediti insufficienti. Ricarica per continuare." });
 
-        // 4. Istruzioni ferree per l'IA per garantire la compatibilità con il frontend
+        // 1. Creiamo un file temporaneo sicuro sul server
+        tempFilePath = path.join(os.tmpdir(), `sds_${Date.now()}.pdf`);
+        fs.writeFileSync(tempFilePath, req.file.buffer);
+
+        // 2. Carichiamo il file tramite l'API ufficiale GoogleAIFileManager
+        const uploadResponse = await fileManager.uploadFile(tempFilePath, {
+            mimeType: "application/pdf",
+            displayName: "SDS Fragranza",
+        });
+
+        // 3. Istruzioni per Gemini
         const prompt = `Analizza la Scheda di Sicurezza (SDS) allegata ed estrai la lista dei componenti chimici pericolosi o allergeni presenti nella sezione 3.
         Restituisci ESCLUSIVAMENTE un oggetto JSON valido che segua tassativamente questa struttura, senza includere blocchi di codice markdown (\`\`\`json) e senza alcun testo discorsivo prima o dopo:
 
@@ -136,42 +133,51 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
             {
               "nome": "NOME DELLA SOSTANZA IN MAIUSCOLO",
               "cas": "NUMERO CAS (formato XXX-XX-X)",
-              "concentrazione": 0.0, // Inserisci solo il numero decimale o intero più alto del range, senza il simbolo %
+              "concentrazione": 0.0,
               "clp": "CODICI H DI PERICOLO (separati da virgola, es. H317, H411)"
             }
           ]
         }`;
 
-        // 5. Invio simultaneo del testo del prompt e del file PDF a Gemini
-        const result = await model.generateContent([prompt, pdfPart]);
-        
-        // 6. Recupero del testo generato e pulizia protettiva da eventuali formattazioni di testo
+        // 4. Inviamo il Prompt collegando il file appena caricato
+        const result = await model.generateContent([
+            {
+                fileData: {
+                    mimeType: uploadResponse.file.mimeType,
+                    fileUri: uploadResponse.file.uri
+                }
+            },
+            { text: prompt },
+        ]);
+
+        // 5. Cancelliamo il file temporaneo per fare pulizia
+        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+
+        // 6. Pulizia e Parsing della risposta JSON
         let jsonText = result.response.text();
         jsonText = jsonText.replace(/```json|```/g, "").trim();
-        
-        // 7. Conversione della stringa in un oggetto JSON reale
         const analysisData = JSON.parse(jsonText);
 
-        // 8. Aggiornamento del profilo utente con la detrazione del credito
         req.user.credits -= 1;
         await req.user.save();
 
-        // 9. Invio della risposta strutturata al client frontend
         res.json({ analysis: analysisData, remainingCredits: req.user.credits });
 
     } catch (error) {
-        console.error("ERRORE STRUTTURALE ANALISI PDF:", error);
-        res.status(500).json({ error: "Il server non è riuscito ad elaborare il PDF tramite l'IA." });
+        console.error("ERRORE METODO FILE MANAGER:", error);
+        // Pulizia sicura in caso di crash
+        if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        res.status(500).json({ error: "Errore durante l'elaborazione tramite Google AI." });
     }
 });
 
+// ==========================================
+// ROTTE API - SALVATAGGIO, ARCHIVIO, ADMIN
+// ==========================================
 app.post('/api/save-report', verifyToken, async (req, res) => {
     try {
         const { nomeFragranza, esito, target, analisiCompleta } = req.body;
-        
-        if (!analisiCompleta) {
-            return res.status(400).json({ error: "Dati di analisi mancanti." });
-        }
+        if (!analisiCompleta) return res.status(400).json({ error: "Dati di analisi mancanti." });
 
         const newReport = new Report({
             userId: req.user._id,
@@ -184,7 +190,6 @@ app.post('/api/save-report', verifyToken, async (req, res) => {
         await newReport.save();
         res.status(201).json({ success: true, message: "Report salvato con successo." });
     } catch (error) {
-        console.error("Errore salvataggio report:", error);
         res.status(500).json({ error: "Impossibile salvare il report." });
     }
 });
@@ -194,14 +199,10 @@ app.delete('/api/svuota-archivio', verifyToken, async (req, res) => {
         await Report.deleteMany({ userId: req.user._id });
         res.json({ success: true, message: "Archivio svuotato con successo." });
     } catch (error) {
-        console.error("Errore svuotamento archivio:", error);
         res.status(500).json({ error: "Impossibile svuotare l'archivio." });
     }
 });
 
-// ==========================================
-// ROTTE API - GESTIONE SOSTANZE E IFRA
-// ==========================================
 app.get('/api/ifra-database', (req, res) => {
     const mockIfraDB = {
         "5989-27-5": { "cat12": 100 }, 
@@ -210,7 +211,6 @@ app.get('/api/ifra-database', (req, res) => {
     res.json(mockIfraDB);
 });
 
-// ✅ Rotte per l'interfaccia Admin (Lettura, Scrittura, Eliminazione)
 app.get('/api/substances', verifyToken, async (req, res) => {
     try {
         const substances = await Substance.find().sort({ nome: 1 });
@@ -227,7 +227,7 @@ app.post('/api/substances', verifyToken, async (req, res) => {
         await newSubstance.save();
         res.status(201).json({ success: true, substance: newSubstance });
     } catch (error) {
-        res.status(500).json({ error: "Errore durante il salvataggio della sostanza." });
+        res.status(500).json({ error: "Errore salvataggio sostanza." });
     }
 });
 
@@ -236,12 +236,12 @@ app.delete('/api/substances/:id', verifyToken, async (req, res) => {
         await Substance.findByIdAndDelete(req.params.id);
         res.json({ success: true, message: "Sostanza eliminata." });
     } catch (error) {
-        res.status(500).json({ error: "Errore durante l'eliminazione." });
+        res.status(500).json({ error: "Errore eliminazione." });
     }
 });
 
 // ==========================================
-// STRIPE CHECKOUT
+// STRIPE E SERVER STATIC
 // ==========================================
 app.post('/api/create-checkout', verifyToken, async (req, res) => {
     try {
@@ -264,12 +264,10 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
         });
         res.json({ url: session.url });
     } catch (error) {
-        console.error("Errore Stripe:", error);
-        res.status(500).json({ error: "Errore durante la creazione del pagamento." });
+        res.status(500).json({ error: "Errore Stripe." });
     }
 });
 
-// Front-end statico
 app.use(express.static(path.join(__dirname, 'frontend')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'index.html')));
 
