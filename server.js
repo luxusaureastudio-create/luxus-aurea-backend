@@ -92,18 +92,18 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
         if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
 
         // Non usiamo più pdf-parse. Inviamo il buffer a Gemini.
-       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         // Gemini legge il PDF direttamente dal buffer
         const result = await model.generateContent([
-            "Analizza questo documento PDF e rispondi solo in formato JSON con questi campi: nome, cas, concentrazione, clp.",
-            {
-                inlineData: {
-                    data: req.file.buffer.toString("base64"),
-                    mimeType: "application/pdf"
-                }
-            }
-        ]);
+    { text: "Analizza questo PDF. Estrai: nome, cas, concentrazione, clp. Rispondi solo in JSON." },
+    {
+        inlineData: {
+            data: req.file.buffer.toString("base64"),
+            mimeType: "application/pdf"
+        }
+    }
+]);
 
         const jsonText = result.response.text().replace(/```json|```/g, "").trim();
         res.json({ analysis: JSON.parse(jsonText) });
