@@ -1,9 +1,18 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const multer = require('multer');
+const app = express();
+
+// 1. CORS deve essere il primo
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+
+// 2. EXPRESS.JSON deve essere subito dopo, PRIMA di qualsiasi rotta
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 3. Ora inizializza il resto (DB, Multer, ecc.)
 const mongoose = require('mongoose');
-// Cambia la riga 6 in:
+// ... tutto il resto del codice ...// Cambia la riga 6 in:
 const pdfParse = require('pdf-parse');
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
