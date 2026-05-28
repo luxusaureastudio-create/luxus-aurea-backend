@@ -107,13 +107,15 @@ app.post('/api/reset-password', async (req, res) => {
 app.get('/api/user-info', verifyToken, (req, res) => res.json({ credits: req.user.credits }));
 app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Report.find({ userId: req.user._id })));
 
-// --- ANALISI PDF ---
+// --- ANALISI PDF (Sostituisci tutto il blocco) ---
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
         
-        // Uso della funzione importata direttamente
-        const pdfData = await pdfParse(req.file.buffer); 
+        // Risoluzione dinamica per garantire che pdfParse sia una funzione
+        const parseFunction = (typeof pdfParse === 'function') ? pdfParse : (pdfParse.default || pdfParse);
+        
+        const pdfData = await parseFunction(req.file.buffer); 
         const text = pdfData.text;
         
         if (!text || text.trim().length < 50) {
