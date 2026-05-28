@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const app = express();
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
@@ -7,37 +8,61 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const sgMail = require('@sendgrid/mail');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const fs = require('fs');
 const os = require('os');
-
-// Inizializzazione SDK Gemini e File Manager Ufficiale
-// Inizializzazione SDK Gemini e File Manager Ufficiale
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { GoogleAIFileManager } = require("@google/generative-ai/server");
 
-// FORZIAMO LA CHIAVE NUOVA DIRETTAMENTE NEL CODICE
-const MIA_CHIAVE = process.env.GEMINI_KEY
+// 1. WEBHOOK - DEVE STARE QUI, PRIMA DI app.use(express.json())
+app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    let event;
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        console.error("Webhook Error:", err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        if (session.metadata.tipo_acquisto === 'pacchetto_app') {
+            const User = mongoose.model('User');
+            const creditiDaAggiungere = session.metadata.pacchetto === 'PRO' ? 25 : 10;
+            await User.findByIdAndUpdate(session.metadata.userId, { $inc: { credits: creditiDaAggiungere } });
+            console.log("✅ Crediti aggiornati per:", session.metadata.userId);
+        }
+    }
+    res.json({ received: true });
+});
 
-const genAI = new GoogleGenerativeAI(MIA_CHIAVE);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // 👈 ECCO LA MAGIA
-const fileManager = new GoogleAIFileManager(MIA_CHIAVE);
-
-const app = express();
+// 2. CONFIGURAZIONI (SOLO UNA VOLTA!)
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log("✅ Connesso a MongoDB"))
-    .catch(err => { console.error("❌ ERRORE CRITICO DB:", err); process.exit(1); });
+/// SECONDO BLOCCO: Inizializzazione SDK e Connessioni
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleAIFileManager } = require("@google/generative-ai/server");
 
+// FORZIAMO LA CHIAVE NUOVA DIRETTAMENTE NEL CODICE
+const MIA_CHIAVE = process.env.GEMINI_KEY;
+
+const genAI = new GoogleGenerativeAI(MIA_CHIAVE);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const fileManager = new GoogleAIFileManager(MIA_CHIAVE);
+
+// Configurazione Upload
 const upload = multer({ storage: multer.memoryStorage() });
 
 if (process.env.SENDGRID_API_KEY) {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
 
+// Connessione Database (Già gestita nel primo blocco, ma assicurati che sia unica)
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log("✅ Connesso a MongoDB"))
+    .catch(err => { console.error("❌ ERRORE CRITICO DB:", err); process.exit(1); });
 // ==========================================
 // MODELLI DATABASE
 // ==========================================
@@ -280,31 +305,6 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
         console.error("Errore Stripe:", error.message);
         res.status(500).json({ error: "Errore nella creazione della sessione." });
     }
-});
-
-app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    let event;
-
-    try {
-        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    } catch (err) {
-        return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-
-        if (session.metadata.tipo_acquisto === 'pacchetto_app') {
-            const userId = session.metadata.userId;
-            const creditiDaAggiungere = session.metadata.pacchetto === 'PRO' ? 25 : 10; // Esempio logica
-            
-            await User.findByIdAndUpdate(userId, { $inc: { credits: creditiDaAggiungere } });
-            console.log("✅ Crediti aggiornati per l'utente:", userId);
-        }
-    }
-
-    res.json({ received: true });
 });
 
 app.use(express.static(path.join(__dirname, 'frontend')));
