@@ -3,8 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
-// Sostituisci la vecchia riga 6 con questa:
-const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+const pdfParse = require('pdf-parse');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
 const path = require('path');
@@ -98,11 +97,11 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
     try {
         if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
 
-        // Utilizzo diretto del modulo caricato dal percorso specifico
+        // Usiamo la funzione caricata correttamente
         const pdfData = await pdfParse(req.file.buffer); 
 
         if (!pdfData.text || pdfData.text.length < 50) {
-            return res.status(400).json({ error: "PDF illeggibile" });
+            return res.status(400).json({ error: "PDF non leggibile" });
         }
 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
