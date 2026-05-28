@@ -3,7 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
-const pdfParse = require('pdf-parse');
+// Sostituisci la vecchia riga 6 con questa:
+const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
 const path = require('path');
@@ -96,11 +97,17 @@ app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Repor
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
-        const pdfData = await pdfParse(req.file.buffer);
-        if (!pdfData.text || pdfData.text.length < 50) return res.status(400).json({ error: "PDF non leggibile" });
+
+        // Utilizzo diretto del modulo caricato dal percorso specifico
+        const pdfData = await pdfParse(req.file.buffer); 
+
+        if (!pdfData.text || pdfData.text.length < 50) {
+            return res.status(400).json({ error: "PDF illeggibile" });
+        }
 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const result = await model.generateContent(`Analizza: ${pdfData.text}. Estrai: nome, cas, concentrazione, clp. Solo JSON.`);
+
         const jsonText = result.response.text().replace(/```json|```/g, "").trim();
         res.json({ analysis: JSON.parse(jsonText) });
     } catch (error) {
