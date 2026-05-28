@@ -115,8 +115,18 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
             return res.status(403).json({ error: "Crediti insufficienti. Ricarica per continuare." });
         }
         
-        const pdfData = await pdfParse(req.file.buffer);
-        const pdfText = pdfData.text.substring(0, 15000); 
+       // 2. Estrazione testo reale dal PDF
+        // Controllo di sicurezza: capisce automaticamente come Render ha importato la libreria
+        let pdfData;
+        if (typeof pdfParse === 'function') {
+            pdfData = await pdfParse(req.file.buffer);
+        } else if (pdfParse && typeof pdfParse.default === 'function') {
+            pdfData = await pdfParse.default(req.file.buffer);
+        } else {
+            throw new Error("Libreria pdf-parse non riconosciuta dal server.");
+        }
+        
+        const pdfText = pdfData.text.substring(0, 15000); // Limite di caratteri
 
         const prompt = `Analizza il seguente testo estratto da una Scheda di Sicurezza (SDS) e rispondi SOLO in formato JSON valido, senza blocchi di codice (markdown):\n\n${pdfText}`;
         const result = await model.generateContent([prompt]);
