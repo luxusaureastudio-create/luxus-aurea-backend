@@ -12,12 +12,16 @@ const fs = require('fs');
 const os = require('os');
 
 // Inizializzazione SDK Gemini e File Manager Ufficiale
+// Inizializzazione SDK Gemini e File Manager Ufficiale
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { GoogleAIFileManager } = require("@google/generative-ai/server");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
+// FORZIAMO LA CHIAVE NUOVA DIRETTAMENTE NEL CODICE
+const MIA_CHIAVE = process.env.GEMINI_KEY
+
+const genAI = new GoogleGenerativeAI(MIA_CHIAVE);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-const fileManager = new GoogleAIFileManager(process.env.GEMINI_KEY);
+const fileManager = new GoogleAIFileManager(MIA_CHIAVE);
 
 const app = express();
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
