@@ -137,14 +137,30 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
 
         const data = await pdfLib(req.file.buffer);
         const rawText = data.text || "";
+// ... (codice precedente riga 140)
+    if (rawText.trim().length < 100) { 
+        return res.status(422).json({ error: "Il PDF sembra una scansione..." });
+    }
 
-        if (rawText.trim().length < 100) { 
-            return res.status(422).json({ error: "Il PDF sembra una scansione. Carica un PDF testuale." });
-        }
+    // --- AGGIUNTA: ESTRAZIONE SEZIONE 3 ---
+    const startRegex = /(?:3\.)\s*(?:Composizione|Informazioni|Ingredients|Composition)/i;
+    const endRegex = /(?:4\.)\s*(?:Misure|First|Primi|Aiuto|Measures)/i;
+    let extractedText = rawText;
+    const startIndex = rawText.search(startRegex);
+    const endIndex = rawText.search(endRegex);
 
-        const prompt = `Analizza questa SDS e restituisci ESCLUSIVAMENTE un oggetto JSON con: fragrance_name, global_hazards (array), components (array di oggetti con cas, name, max (numero), h_statements (array)) e ufi_required (booleano). SDS: ${rawText.substring(0, 20000)}`;
+    if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+        extractedText = rawText.substring(startIndex, endIndex);
+    } else if (startIndex !== -1) {
+        extractedText = rawText.substring(startIndex, startIndex + 2000);
+    }
+    // -------------------------------------
 
-        const result = await model.generateContent(prompt);
+    // Ora modifichiamo il prompt per usare extractedText
+    const prompt = `Analizza questa SDS (estratta dalla sezione 3) e restituisci ESCLUSIVAMENTE un oggetto JSON... SDS: ${extractedText.substring(0, 5000)}`;
+    
+    const result = await model.generateContent(prompt);
+    // ... (continua con il resto del codice riga 147)
         const textResponse = result.response.text();
         
         // INTEGRAZIONE: Pulizia JSON più robusta
