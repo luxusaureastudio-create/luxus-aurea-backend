@@ -1,4 +1,5 @@
 require('dotenv').config();
+const fetch = require('node-fetch');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -94,33 +95,38 @@ app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Repor
 // ✅ Analisi PDF — CORRETTA
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: "Nessun file" });
+        if (!req.file) return res.status(400).json({ error: "File mancante" });
+        
+        // Convertiamo il file in testo semplice tramite un trucco (senza librerie)
+        const pdfText = req.file.buffer.toString('latin1').substring(0, 5000);
 
-        // 1. Leggiamo il PDF come testo semplice (senza librerie pesanti)
-        // Usiamo un trucco: PDF è un file binario, leggiamolo come stringa
-        const pdfContent = req.file.buffer.toString('latin1'); 
+        // Chiamata diretta all'API di Google (senza usare l'SDK problematico)
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: "Analizza: " + pdfText + ". Rispondi solo in JSON." }] }]
+            })
+        });
 
-        // 2. Inviamo a Gemini SOLO il testo, senza caricare il file binario
-        // Usa questa inizializzazione specifica che forza il modello corretto
-const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
-    apiVersion: 'v1beta' // Assicurati di non avere altri override
-});
+        const data = await response.json();
+        
+        if (!data.candidates) {
+            throw new Error("Risposta API invalida: " + JSON.stringify(data));
+        }
 
-// E usa questo metodo di generazione:
-const result = await model.generateContent([
-    "Analizza questo testo e rispondi solo in JSON: " + pdfContent.substring(0, 10000)
-]);;
-
-        const jsonText = result.response.text().replace(/```json|```/g, "").trim();
+        const jsonText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim();
         res.json({ analysis: JSON.parse(jsonText) });
 
     } catch (error) {
         console.error("ERRORE FINALE:", error);
-        res.status(500).json({ error: "Errore di analisi." });
+        res.status(500).json({ error: "Errore durante l'analisi." });
     }
 });
-// Statico e Pagamenti
+// E usa questo metodo di generazione:
+const result = await model.generateContent([
+    "Analizza questo testo e rispondi solo in JSON: " + pdfContent.substring(0, 10000)
+]);;
 app.use(express.static(path.join(__dirname, 'frontend')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'index.html')));
 
