@@ -1,5 +1,8 @@
-// MODIFICA QUESTA RIGA:cd backend
-const BASE_URL = "https://safetydata-backend.onrender.com";
+// Imposta automaticamente l'URL corretto: localhost per lo sviluppo, Render per la produzione
+const BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') 
+    ? "http://localhost:10000" 
+    : "https://safetydata-backend.onrender.com";
+
 let globalAnalysisData = null;
 
 // --- AGGIORNAMENTO CREDITI ---
@@ -9,11 +12,13 @@ async function aggiornaCrediti() {
     if (!token || !creditsSpan) return;
     try {
         const res = await fetch(`${BASE_URL}/api/user-info`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('luxusToken')}` }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
-        const data = await res.json();
-        if (data.credits !== undefined) {
-            creditsSpan.innerText = data.credits;
+        if (res.ok) {
+            const data = await res.json();
+            if (data.credits !== undefined) {
+                creditsSpan.innerText = data.credits;
+            }
         }
     } catch (err) { 
         console.error("Errore crediti:", err); 
@@ -26,7 +31,7 @@ function generaIconeGHS(listaH) {
     const hasGHS05 = listaH.some(h => h === 'H314' || h === 'H318');
     const hasGHS07 = listaH.some(h => ['H317', 'H319', 'H302', 'H315'].includes(h));
     const hasGHS08 = listaH.some(h => h.startsWith('H34') || h.startsWith('H35') || h.startsWith('H36'));
-    // GHS09 scatta solo per i pericoli ambientali gravi: H400, H410, H411 (L'H412 regolamentare NON ha icona)
+    // GHS09 scatta solo per i pericoli ambientali gravi: H400, H410, H411 (L'H412 NON ha icona)
     const hasGHS09 = listaH.some(h => ['H400', 'H410', 'H411'].includes(h));
 
     if (hasGHS05) html += `<div style="text-align:center;"><img src="ghs05.png" style="height:60px;"><br><small style="font-size:8px;">GHS05</small></div>`;
@@ -43,6 +48,7 @@ async function uploadPDF() {
     const token = localStorage.getItem('luxusToken');
 
     if (!fileInput.files[0]) return alert("Seleziona un file PDF.");
+    if (!token) return alert("Devi effettuare l'accesso per analizzare i PDF.");
 
     btn.innerText = "ANALISI IN CORSO... ⏳";
     btn.disabled = true;
@@ -76,12 +82,13 @@ async function uploadPDF() {
             }
             
             document.getElementById('analyzeBtn').disabled = false;
-            aggiornaCrediti();
+            aggiornaCrediti(); // Aggiorna i crediti mostrati dopo averne speso 1
         } else {
-            alert("Errore: " + data.error);
+            alert("Errore: " + (data.error || "Sconosciuto"));
         }
     } catch (error) {
         alert("Errore di connessione al server.");
+        console.error(error);
     } finally {
         btn.innerText = "ANALIZZA PDF CON IA";
         btn.disabled = false;
@@ -95,8 +102,8 @@ async function runAnalysis() {
     let limitiIFRA = {};
     try {
        const res = await fetch(`${BASE_URL}/api/ifra-database`);
-       limitiIFRA = await res.json();
-    } catch (e) { console.error("Errore IFRA DB"); }
+       if(res.ok) limitiIFRA = await res.json();
+    } catch (e) { console.error("Errore recupero IFRA DB", e); }
 
     const resultsDiv = document.getElementById('results');
     const sostanze = globalAnalysisData.analysis || [];
@@ -110,10 +117,7 @@ async function runAnalysis() {
     let datiGrafico = [];
 
     let sumH318 = 0, sumH315 = 0, sumH319 = 0, sumH400 = 0, sumH410 = 0, sumH411 = 0, sumH412 = 0;
-    let hasSensitizer = false, hasRepro = false;
-    let containsEndocrine = false;
-    
-    // Flag precauzionale per gli agrumi (Limonene / Menta Arancio)
+    let hasSensitizer = false, hasRepro = false, containsEndocrine = false;
     let forzaH412Precauzione = false;
 
     sostanze.forEach(s => {
@@ -159,7 +163,7 @@ async function runAnalysis() {
     if (hasSensitizer) codiciMiscela.add('H317');
     if (hasRepro) codiciMiscela.add('H360');
     
-    // Metodo additivo CLP per l'ambiente + clausola di salvaguardia agrumi
+    // Metodo additivo CLP per l'ambiente
     if (sumH410 >= 25.0) codiciMiscela.add('H410');
     else if ((sumH411 + 10*sumH410) >= 25.0) codiciMiscela.add('H411');
     else if ((sumH412 + 10*sumH411 + 100*sumH410) >= 25.0 || forzaH412Precauzione) {
@@ -227,6 +231,8 @@ async function salvaInArchivio() {
 
     try {
         const token = localStorage.getItem('luxusToken');
+        if (!token) return alert("Devi essere loggato per salvare in archivio.");
+
         const res = await fetch(`${BASE_URL}/api/save-report`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -237,7 +243,8 @@ async function salvaInArchivio() {
             alert(`✅ Report "${nomeFinale}" salvato con successo!`);
             caricaArchivioDalServer();
         } else {
-            alert("Errore durante il salvataggio.");
+            const errData = await res.json();
+            alert("Errore durante il salvataggio: " + (errData.error || "Errore del server"));
         }
     } catch (error) {
         console.error(error);
@@ -251,20 +258,27 @@ async function caricaArchivioDalServer() {
     if (!token || !historyList) return;
     try {
         const res = await fetch(`${BASE_URL}/api/my-archive`, { headers: { 'Authorization': `Bearer ${token}` } });
-        const reports = await res.json();
-        historyList.innerHTML = reports.length === 0 ? '<p>Nessun report.</p>' : reports.map(r => `
-            <div style="padding:10px; border-bottom:1px solid #eee; cursor:pointer;" onclick='ripristinaDaArchivio(${JSON.stringify(r.analisiCompleta)})'>
-                <strong>${r.nomeFragranza}</strong><br><small>${r.esito} (${r.target}%)</small>
-            </div>`).join('');
-    } catch (err) { console.error(err); }
+        if (res.ok) {
+            const reports = await res.json();
+            historyList.innerHTML = reports.length === 0 ? '<p>Nessun report in archivio.</p>' : reports.map(r => `
+                <div style="padding:10px; border-bottom:1px solid #eee; cursor:pointer;" onclick='ripristinaDaArchivio(${JSON.stringify(r.analisiCompleta)})'>
+                    <strong>${r.nomeFragranza}</strong><br><small>${r.esito} (${r.target}%)</small>
+                </div>`).join('');
+        }
+    } catch (err) { console.error("Errore caricamento archivio", err); }
 }
 
 async function svuotaArchivio() {
-    if (!confirm("Svuotare l'archivio?")) return;
+    if (!confirm("Sei sicuro di voler svuotare tutto l'archivio? Questa azione è irreversibile.")) return;
     const token = localStorage.getItem('luxusToken');
     try {
         const res = await fetch(`${BASE_URL}/api/svuota-archivio`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-        if (res.ok) { caricaArchivioDalServer(); alert("Archivio svuotato!"); }
+        if (res.ok) { 
+            caricaArchivioDalServer(); 
+            alert("Archivio svuotato!"); 
+        } else {
+            alert("Impossibile svuotare l'archivio.");
+        }
     } catch (err) { console.error(err); }
 }
 
@@ -295,6 +309,6 @@ async function acquistaPacchetto(tipoPacchetto, prezzoScelto) {
         });
         const data = await response.json();
         if (response.ok && data.url) window.location.href = data.url; 
-        else alert("Errore pagamento.");
-    } catch (err) { alert("Errore di connessione."); }
+        else alert("Errore durante l'inizializzazione del pagamento.");
+    } catch (err) { alert("Errore di connessione a Stripe."); }
 }

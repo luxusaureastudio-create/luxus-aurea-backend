@@ -1,5 +1,4 @@
 require('dotenv').config();
-const fetch = require('node-fetch');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -9,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const sgMail = require('@sendgrid/mail');
+const pdfParse = require('pdf-parse'); // ✅ Nuova libreria per leggere i PDF
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
 
 const app = express();
@@ -27,14 +27,15 @@ if (process.env.SENDGRID_API_KEY) {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
 
-// Inizializzazione corretta per il tuo progetto
+// Inizializzazione SDK Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
-// Assicuriamoci che il modello sia istanziato correttamente
 const model = genAI.getGenerativeModel({ 
     model: "gemini-1.5-flash" 
 });
 
-// Modelli
+// ==========================================
+// MODELLI DATABASE
+// ==========================================
 const User = mongoose.model('User', new mongoose.Schema({
     companyName: String,
     email: { type: String, required: true, unique: true },
@@ -50,6 +51,13 @@ const Report = mongoose.model('Report', new mongoose.Schema({
     analisiCompleta: Object
 }));
 
+// ✅ Nuovo Modello per la Gestione delle Sostanze e limiti SCL
+const Substance = mongoose.model('Substance', new mongoose.Schema({
+    cas: { type: String, required: true },
+    nome: { type: String, required: true },
+    scl: { type: Number, required: true, default: 1.0 }
+}));
+
 // Middleware Autenticazione
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -58,19 +66,24 @@ const verifyToken = async (req, res, next) => {
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = await User.findById(decoded.id);
+        if (!req.user) return res.status(401).json({ error: "Utente non trovato" });
         next();
     } catch (e) { res.status(401).json({ error: "Non autorizzato" }); }
 };
 
-// Rotte API
+// ==========================================
+// ROTTE API - AUTENTICAZIONE E UTENTE
+// ==========================================
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
         const user = await User.findOne({ email });
         if (!user) return res.status(401).json({ error: "Utente non trovato" });
+        
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(401).json({ error: "Credenziali errate" });
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' }); // ✅ 24h invece di 1h
+        
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
         res.json({ token });
     } catch (error) {
         res.status(500).json({ error: "Errore interno: " + error.message });
@@ -92,62 +105,143 @@ app.post('/api/register', async (req, res) => {
 app.get('/api/user-info', verifyToken, (req, res) => res.json({ credits: req.user.credits }));
 app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Report.find({ userId: req.user._id })));
 
-// ✅ Analisi PDF — CORRETTA
+// ==========================================
+// ROTTE API - ANALISI E REPORT
+// ==========================================
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "File mancante" });
-        
-        // Convertiamo il file in testo semplice tramite un trucco (senza librerie)
-        const pdfText = req.file.buffer.toString('latin1').substring(0, 5000);
-
-        // Chiamata diretta all'API di Google (senza usare l'SDK problematico)
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_KEY}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: "Analizza: " + pdfText + ". Rispondi solo in JSON." }] }]
-            })
-        });
-
-        const data = await response.json();
-        
-        if (!data.candidates) {
-            throw new Error("Risposta API invalida: " + JSON.stringify(data));
+        if (req.user.credits <= 0) {
+            return res.status(403).json({ error: "Crediti insufficienti. Ricarica per continuare." });
         }
+        
+        const pdfData = await pdfParse(req.file.buffer);
+        const pdfText = pdfData.text.substring(0, 15000); 
 
-        const jsonText = data.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim();
-        res.json({ analysis: JSON.parse(jsonText) });
+        const prompt = `Analizza il seguente testo estratto da una Scheda di Sicurezza (SDS) e rispondi SOLO in formato JSON valido, senza blocchi di codice (markdown):\n\n${pdfText}`;
+        const result = await model.generateContent([prompt]);
+        
+        let jsonText = result.response.text();
+        jsonText = jsonText.replace(/```json|```/g, "").trim();
+        const analysisData = JSON.parse(jsonText);
 
+        req.user.credits -= 1;
+        await req.user.save();
+
+        res.json({ analysis: analysisData, remainingCredits: req.user.credits });
     } catch (error) {
-        console.error("ERRORE FINALE:", error);
-        res.status(500).json({ error: "Errore durante l'analisi." });
+        console.error("ERRORE ANALISI PDF:", error);
+        res.status(500).json({ error: "Errore durante l'elaborazione del documento." });
     }
 });
-// E usa questo metodo di generazione:
-const result = await model.generateContent([
-    "Analizza questo testo e rispondi solo in JSON: " + pdfContent.substring(0, 10000)
-]);;
-app.use(express.static(path.join(__dirname, 'frontend')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'index.html')));
 
+app.post('/api/save-report', verifyToken, async (req, res) => {
+    try {
+        const { nomeFragranza, esito, target, analisiCompleta } = req.body;
+        
+        if (!analisiCompleta) {
+            return res.status(400).json({ error: "Dati di analisi mancanti." });
+        }
+
+        const newReport = new Report({
+            userId: req.user._id,
+            nomeFragranza: nomeFragranza || "SENZA NOME",
+            esito: esito || "SCONOSCIUTO",
+            target: target || 0,
+            analisiCompleta: analisiCompleta
+        });
+
+        await newReport.save();
+        res.status(201).json({ success: true, message: "Report salvato con successo." });
+    } catch (error) {
+        console.error("Errore salvataggio report:", error);
+        res.status(500).json({ error: "Impossibile salvare il report." });
+    }
+});
+
+app.delete('/api/svuota-archivio', verifyToken, async (req, res) => {
+    try {
+        await Report.deleteMany({ userId: req.user._id });
+        res.json({ success: true, message: "Archivio svuotato con successo." });
+    } catch (error) {
+        console.error("Errore svuotamento archivio:", error);
+        res.status(500).json({ error: "Impossibile svuotare l'archivio." });
+    }
+});
+
+// ==========================================
+// ROTTE API - GESTIONE SOSTANZE E IFRA
+// ==========================================
+app.get('/api/ifra-database', (req, res) => {
+    const mockIfraDB = {
+        "5989-27-5": { "cat12": 100 }, 
+        "120-51-4": { "cat12": 100 }   
+    };
+    res.json(mockIfraDB);
+});
+
+// ✅ Rotte per l'interfaccia Admin (Lettura, Scrittura, Eliminazione)
+app.get('/api/substances', verifyToken, async (req, res) => {
+    try {
+        const substances = await Substance.find().sort({ nome: 1 });
+        res.json(substances);
+    } catch (error) {
+        res.status(500).json({ error: "Errore nel recupero delle sostanze." });
+    }
+});
+
+app.post('/api/substances', verifyToken, async (req, res) => {
+    try {
+        const { cas, nome, scl } = req.body;
+        const newSubstance = new Substance({ cas, nome, scl: parseFloat(scl) });
+        await newSubstance.save();
+        res.status(201).json({ success: true, substance: newSubstance });
+    } catch (error) {
+        res.status(500).json({ error: "Errore durante il salvataggio della sostanza." });
+    }
+});
+
+app.delete('/api/substances/:id', verifyToken, async (req, res) => {
+    try {
+        await Substance.findByIdAndDelete(req.params.id);
+        res.json({ success: true, message: "Sostanza eliminata." });
+    } catch (error) {
+        res.status(500).json({ error: "Errore durante l'eliminazione." });
+    }
+});
+
+// ==========================================
+// STRIPE CHECKOUT
+// ==========================================
 app.post('/api/create-checkout', verifyToken, async (req, res) => {
     try {
         const { pacchetto, importoPersonalizzato } = req.body;
+        const clientUrl = process.env.CLIENT_URL || 'https://safetydata-backend.onrender.com';
+
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [{
-                price_data: { currency: 'eur', product_data: { name: `Pacchetto ${pacchetto}` }, unit_amount: Math.round(importoPersonalizzato * 100) },
+                price_data: { 
+                    currency: 'eur', 
+                    product_data: { name: `Pacchetto ${pacchetto}` }, 
+                    unit_amount: Math.round(importoPersonalizzato * 100) 
+                },
                 quantity: 1,
             }],
             mode: 'payment',
-            success_url: 'https://safetydata-backend.onrender.com/index.html?success=true',
-            cancel_url: 'https://safetydata-backend.onrender.com/index.html?canceled=true',
+            success_url: `${clientUrl}/index.html?success=true`,
+            cancel_url: `${clientUrl}/index.html?canceled=true`,
         });
         res.json({ url: session.url });
     } catch (error) {
-        res.status(500).json({ error: "Errore Stripe" });
+        console.error("Errore Stripe:", error);
+        res.status(500).json({ error: "Errore durante la creazione del pagamento." });
     }
 });
+
+// Front-end statico
+app.use(express.static(path.join(__dirname, 'frontend')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'index.html')));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Server attivo su porta ${PORT}`));

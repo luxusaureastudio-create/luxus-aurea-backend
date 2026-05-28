@@ -10,24 +10,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luxus Aurea - Gestione Sostanze</title>
-    <link rel="stylesheet" href="style.css"> <!-- Usiamo lo stesso stile della index -->
+    <link rel="stylesheet" href="style.css">
     <style>
-        .admin-container { max-width: 800px; margin: 20px auto; padding: 20px; background: white; border-radius: 8px; }
+        .admin-container { max-width: 800px; margin: 20px auto; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
-        th { background-color: #f4f4f4; }
+        th { background-color: #f4f4f4; color: #1e293b; }
         .btn-del { background: #ff4d4d; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; }
-        .form-group { margin-bottom: 15px; display: flex; gap: 10px; align-items: flex-end; }
+        .btn-del:hover { background: #cc0000; }
+        .form-group { margin-bottom: 15px; display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
         input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
     </style>
 </head>
 <body>
     <div class="admin-container">
         <h1>Gestione Database Sostanze</h1>
-        <a href="index.html">← Torna all'Analisi</a>
-        <hr>
+        <a href="index.html" style="color: #b59a5b; text-decoration: none; font-weight: bold;">← Torna all'Analisi</a>
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
         
-        <h3>Aggiungi Sostanza (Aggiornamenti 2026)</h3>
+        <h3>Aggiungi Sostanza (Aggiornamenti)</h3>
         <div class="form-group">
             <div><label>CAS</label><br><input type="text" id="cas" placeholder="es. 104-55-2"></div>
             <div><label>Nome</label><br><input type="text" id="nome" placeholder="es. Cinnamal"></div>
@@ -45,63 +46,97 @@
                 </tr>
             </thead>
             <tbody id="substanceList">
-                <!-- Qui appariranno le sostanze -->
-            </tbody>
+                </tbody>
         </table>
     </div>
 
     <script>
-        // --- INIZIO MODIFICA URL DINAMICO ---
-        // Se l'host è locale usa localhost, altrimenti usa il dominio di produzione
+        // Configurazione URL corretta
         const BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-            ? 'https://luxus-aurea-backend.onrender.com/api'
-            : 'https://api.iltuodominio.com/api'; // Sostituisci "iltuodominio.com" con il tuo dominio reale in futuro
+            ? 'http://localhost:10000' 
+            : 'https://safetydata-backend.onrender.com'; 
 
-        const API_URL = `${BASE_URL}/substances`;
-        // --- FINE MODIFICA ---
+        const API_URL = `${BASE_URL}/api/substances`;
+
+        // Helper per ottenere le intestazioni con il token
+        function getHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('luxusToken')}`
+            };
+        }
 
         // Carica le sostanze all'avvio
         async function loadSubstances() {
-            const res = await fetch(API_URL);
-            const data = await res.json();
-            const list = document.getElementById('substanceList');
-            list.innerHTML = '';
-            data.forEach(s => {
-                list.innerHTML += `
-                    <tr>
-                        <td>${s.cas}</td>
-                        <td>${s.nome}</td>
-                        <td>${s.scl}%</td>
-                        <td><button class="btn-del" onclick="deleteSubstance('${s._id}')">Elimina</button></td>
-                    </tr>
-                `;
-            });
+            try {
+                const res = await fetch(API_URL, { headers: getHeaders() });
+                if (!res.ok) throw new Error("Errore nel caricamento dei dati");
+                
+                const data = await res.json();
+                const list = document.getElementById('substanceList');
+                list.innerHTML = '';
+                
+                data.forEach(s => {
+                    list.innerHTML += `
+                        <tr>
+                            <td>${s.cas}</td>
+                            <td>${s.nome}</td>
+                            <td>${s.scl}%</td>
+                            <td><button class="btn-del" onclick="deleteSubstance('${s._id}')">Elimina</button></td>
+                        </tr>
+                    `;
+                });
+            } catch (error) {
+                console.error(error);
+                alert("Impossibile caricare il database delle sostanze.");
+            }
         }
 
         // Aggiunge una nuova sostanza
         async function addSubstance() {
-            const cas = document.getElementById('cas').value;
-            const nome = document.getElementById('nome').value;
+            const cas = document.getElementById('cas').value.trim();
+            const nome = document.getElementById('nome').value.trim();
             const scl = document.getElementById('scl').value;
 
             if(!cas || !nome) return alert("Inserisci CAS e Nome");
 
-            await fetch(API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cas, nome, scl })
-            });
-            
-            document.getElementById('cas').value = '';
-            document.getElementById('nome').value = '';
-            loadSubstances();
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: getHeaders(), // 👈 TOKEN AGGIUNTO QUI
+                    body: JSON.stringify({ cas, nome, scl })
+                });
+
+                if (res.ok) {
+                    document.getElementById('cas').value = '';
+                    document.getElementById('nome').value = '';
+                    document.getElementById('scl').value = '1.0';
+                    loadSubstances();
+                } else {
+                    const err = await res.json();
+                    alert("Errore salvataggio: " + err.error);
+                }
+            } catch (error) {
+                alert("Errore di connessione al server.");
+            }
         }
 
         // Elimina una sostanza
         async function deleteSubstance(id) {
-            if(confirm("Sicuro di voler eliminare questa sostanza?")) {
-                await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
-                loadSubstances();
+            if(confirm("Sicuro di voler eliminare questa sostanza dal database?")) {
+                try {
+                    const res = await fetch(`${API_URL}/${id}`, { 
+                        method: 'DELETE',
+                        headers: getHeaders() // 👈 TOKEN AGGIUNTO QUI
+                    });
+                    if (res.ok) {
+                        loadSubstances();
+                    } else {
+                        alert("Impossibile eliminare la sostanza.");
+                    }
+                } catch (error) {
+                    alert("Errore di connessione.");
+                }
             }
         }
 
