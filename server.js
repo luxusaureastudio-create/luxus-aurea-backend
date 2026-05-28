@@ -8,7 +8,6 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const sgMail = require('@sendgrid/mail');
-const pdfParse = require('pdf-parse'); // ✅ Nuova libreria per leggere i PDF
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
 
 const app = express();
@@ -108,40 +107,61 @@ app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Repor
 // ==========================================
 // ROTTE API - ANALISI E REPORT
 // ==========================================
+// ✅ CODICE DEFINITIVO PER LA LETTURA NATIVA DEL PDF CON GEMINI
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
     try {
+        // 1. Controllo di sicurezza preliminare sul file e sui crediti dell'utente
         if (!req.file) return res.status(400).json({ error: "File mancante" });
         if (req.user.credits <= 0) {
             return res.status(403).json({ error: "Crediti insufficienti. Ricarica per continuare." });
         }
         
-       // 2. Estrazione testo reale dal PDF
-        // Controllo di sicurezza: capisce automaticamente come Render ha importato la libreria
-        let pdfData;
-        if (typeof pdfParse === 'function') {
-            pdfData = await pdfParse(req.file.buffer);
-        } else if (pdfParse && typeof pdfParse.default === 'function') {
-            pdfData = await pdfParse.default(req.file.buffer);
-        } else {
-            throw new Error("Libreria pdf-parse non riconosciuta dal server.");
-        }
+        // 2. Trasformazione del buffer binario del PDF in stringa Base64
+        const pdfBase64 = req.file.buffer.toString('base64');
         
-        const pdfText = pdfData.text.substring(0, 15000); // Limite di caratteri
+        // 3. Configurazione del file secondo le specifiche dell'SDK di Google
+        const pdfPart = {
+            inlineData: {
+                data: pdfBase64,
+                mimeType: "application/pdf"
+            }
+        };
 
-        const prompt = `Analizza il seguente testo estratto da una Scheda di Sicurezza (SDS) e rispondi SOLO in formato JSON valido, senza blocchi di codice (markdown):\n\n${pdfText}`;
-        const result = await model.generateContent([prompt]);
+        // 4. Istruzioni ferree per l'IA per garantire la compatibilità con il frontend
+        const prompt = `Analizza la Scheda di Sicurezza (SDS) allegata ed estrai la lista dei componenti chimici pericolosi o allergeni presenti nella sezione 3.
+        Restituisci ESCLUSIVAMENTE un oggetto JSON valido che segua tassativamente questa struttura, senza includere blocchi di codice markdown (\`\`\`json) e senza alcun testo discorsivo prima o dopo:
+
+        {
+          "components": [
+            {
+              "nome": "NOME DELLA SOSTANZA IN MAIUSCOLO",
+              "cas": "NUMERO CAS (formato XXX-XX-X)",
+              "concentrazione": 0.0, // Inserisci solo il numero decimale o intero più alto del range, senza il simbolo %
+              "clp": "CODICI H DI PERICOLO (separati da virgola, es. H317, H411)"
+            }
+          ]
+        }`;
+
+        // 5. Invio simultaneo del testo del prompt e del file PDF a Gemini
+        const result = await model.generateContent([prompt, pdfPart]);
         
+        // 6. Recupero del testo generato e pulizia protettiva da eventuali formattazioni di testo
         let jsonText = result.response.text();
         jsonText = jsonText.replace(/```json|```/g, "").trim();
+        
+        // 7. Conversione della stringa in un oggetto JSON reale
         const analysisData = JSON.parse(jsonText);
 
+        // 8. Aggiornamento del profilo utente con la detrazione del credito
         req.user.credits -= 1;
         await req.user.save();
 
+        // 9. Invio della risposta strutturata al client frontend
         res.json({ analysis: analysisData, remainingCredits: req.user.credits });
+
     } catch (error) {
-        console.error("ERRORE ANALISI PDF:", error);
-        res.status(500).json({ error: "Errore durante l'elaborazione del documento." });
+        console.error("ERRORE STRUTTURALE ANALISI PDF:", error);
+        res.status(500).json({ error: "Il server non è riuscito ad elaborare il PDF tramite l'IA." });
     }
 });
 
