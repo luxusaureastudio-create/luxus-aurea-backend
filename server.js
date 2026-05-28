@@ -252,14 +252,18 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
         const { pacchetto, importoPersonalizzato } = req.body;
         const clientUrl = process.env.CLIENT_URL || 'https://safetydata-backend.onrender.com';
 
+        // Creazione sessione Stripe con raccolta dati fiscali
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
-            billing_address_collection: 'required',
+            billing_address_collection: 'required', // Indirizzo obbligatorio
+            tax_id_collection: {
+                enabled: true, // Attiva campo P.IVA/Codice Fiscale
+            },
             line_items: [{
                 price_data: { 
                     currency: 'eur', 
                     product_data: { name: `Pacchetto ${pacchetto}` }, 
-                    unit_amount: Math.round(importoPersonalizzato * 100) 
+                    unit_amount: Math.round(parseFloat(importoPersonalizzato) * 100) 
                 },
                 quantity: 1,
             }],
@@ -268,9 +272,12 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
             cancel_url: `${clientUrl}/index.html?canceled=true`,
         });
 
+        // Invio dell'URL al frontend per il redirect
         res.json({ url: session.url });
+
     } catch (error) {
-        res.status(500).json({ error: "Errore Stripe: " + error.message });
+        console.error("Errore Stripe:", error.message);
+        res.status(500).json({ error: "Errore nella creazione della sessione di pagamento." });
     }
 });
 
