@@ -1,5 +1,5 @@
 // MODIFICA QUESTA RIGA:cd backend
-const BASE_URL = "";
+const BASE_URL = "https://safetydata-backend.onrender.com";
 let globalAnalysisData = null;
 
 // --- AGGIORNAMENTO CREDITI ---
