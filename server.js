@@ -92,7 +92,7 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
         if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
 
         // Non usiamo più pdf-parse. Inviamo il buffer a Gemini.
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
         // Gemini legge il PDF direttamente dal buffer
         const result = await model.generateContent([
