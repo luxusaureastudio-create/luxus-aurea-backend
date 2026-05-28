@@ -252,10 +252,9 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
         const { pacchetto, importoPersonalizzato } = req.body;
         const clientUrl = process.env.CLIENT_URL || 'https://safetydata-backend.onrender.com';
 
-        const session = await stripe.checkout.sessions.create({
+       const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             billing_address_collection: 'required',
-            customer_update: { address: 'auto' },
             line_items: [{
                 price_data: { 
                     currency: 'eur', 
@@ -268,11 +267,6 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
             success_url: `${clientUrl}/index.html?success=true`,
             cancel_url: `${clientUrl}/index.html?canceled=true`,
         });
-        res.json({ url: session.url });
-    } catch (error) {
-        res.status(500).json({ error: "Errore Stripe: " + error.message });
-    }
-});
 
 app.use(express.static(path.join(__dirname, 'frontend')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'index.html')));
