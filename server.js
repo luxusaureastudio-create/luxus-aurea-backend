@@ -22,7 +22,6 @@ const bcrypt = require('bcrypt');
 const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy');
 
-const app = express();
 // Sostituisci la riga 14 del server.js con questa:
 app.use(cors({
     origin: '*', // Per ora lasciamo '*' per testare, ma è meglio specificare l'URL del frontend
