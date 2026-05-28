@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const app = express();
-// 1. WEBHOOK - DEVE STARE QUI, PRIMA DI app.use(express.json())
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
@@ -11,15 +10,29 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         console.error("Webhook Error:", err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
+
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
+        
         if (session.metadata.tipo_acquisto === 'pacchetto_app') {
+            let creditiDaAggiungere = 0;
+            const nomePacchetto = session.metadata.pacchetto;
+            
+            if (nomePacchetto === 'Discovery') {
+                creditiDaAggiungere = 5;
+            } else if (nomePacchetto === 'Stagionale') {
+                creditiDaAggiungere = 12;
+            } else if (nomePacchetto === 'PRO') {
+                creditiDaAggiungere = 25;
+            }
+
             const User = mongoose.model('User');
-            const creditiDaAggiungere = session.metadata.pacchetto === 'PRO' ? 25 : 10;
             await User.findByIdAndUpdate(session.metadata.userId, { $inc: { credits: creditiDaAggiungere } });
-            console.log("✅ Crediti aggiornati per:", session.metadata.userId);
+            console.log(`✅ Aggiunti ${creditiDaAggiungere} crediti all'utente:`, session.metadata.userId);
         }
     }
+    
+    // La risposta va messa qui, fuori dall'if dell'evento, ma dentro la funzione
     res.json({ received: true });
 });
 const cors = require('cors');
