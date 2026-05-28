@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Luxus Aurea - Accesso</title>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #1e293b; margin: 0; font-family: sans-serif; }
+        .auth-card { background: white; padding: 40px; border-radius: 20px; width: 100%; max-width: 380px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+        .form-group { text-align: left; margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 13px; margin-bottom: 5px; font-weight: 600; }
+        .form-group input { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 10px; box-sizing: border-box; }
+        .btn-main { background: #1e293b; color: white; border: none; padding: 15px; width: 100%; border-radius: 10px; cursor: pointer; font-weight: 700; margin-top: 10px; }
+        .toggle-link { margin-top: 20px; font-size: 13px; color: #64748b; cursor: pointer; text-decoration: underline; }
+        .forgot-link { margin-top: 10px; font-size: 12px; color: #475569; cursor: pointer; text-decoration: underline; display: block; }
+    </style>
+</head>
+<body>
+
+    <div class="auth-card">
+        <h2 style="color: #1e293b;">Luxus Aurea</h2>
+
+        <div id="loginForm">
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="loginEmail" placeholder="tua@email.com">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="loginPassword" placeholder="••••••••">
+            </div>
+            <button class="btn-main" onclick="eseguiLogin()">ACCEDI</button>
+            <span class="forgot-link" onclick="forgotPassword()">Password dimenticata?!</span>
+            <div class="toggle-link" onclick="toggleForms()">Non hai un account? Registrati</div>
+        </div>
+
+        <div id="registerForm" style="display: none;">
+            <div class="form-group">
+                <label>Nome Azienda</label>
+                <input type="text" id="regCompany" placeholder="Nome della tua società">
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="regEmail" placeholder="email@aziendale.com">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="regPassword" placeholder="Minimo 6 caratteri">
+            </div>
+            <button class="btn-main" onclick="eseguiRegistrazione()">CREA ACCOUNT</button>
+            <div class="toggle-link" onclick="toggleForms()">Hai già un account? Accedi</div>
+        </div>
+    </div>
+
+    <script>
+        const BASE_URL = "https://safetydata-backend.onrender.com";
+
+        function toggleForms() {
+            const l = document.getElementById('loginForm');
+            const r = document.getElementById('registerForm');
+            l.style.display = (l.style.display === 'none') ? 'block' : 'none';
+            r.style.display = (r.style.display === 'none') ? 'block' : 'none';
+        }
+
+        async function forgotPassword() {
+            const email = prompt("Inserisci la tua email per ricevere il link di reset:");
+            if (!email) return;
+            try {
+                const res = await fetch(`${BASE_URL}/api/request-reset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const data = await res.json();
+                alert(data.success ? "Controlla la tua email!" : (data.error || "Errore"));
+            } catch (e) { alert("Errore di connessione"); }
+        }
+
+        async function eseguiLogin() {
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    
+    try {
+        const res = await fetch(`${BASE_URL}/api/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        
+        const data = await res.json();
+        console.log("Risposta del server:", data); // Fondamentale per capire se il server invia il token
+        
+        if (res.ok && data.token) {
+            localStorage.setItem('luxusToken', data.token);
+            window.location.href = 'index.html';
+        } else { 
+            alert("Errore: " + (data.error || "Login fallito")); 
+        }
+    } catch (e) { alert("Errore di connessione"); }
+}
+        async function eseguiRegistrazione() {
+            const companyName = document.getElementById('regCompany').value;
+            const email = document.getElementById('regEmail').value;
+            const password = document.getElementById('regPassword').value;
+            try {
+                const res = await fetch(`${BASE_URL}/api/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ companyName, email, password })
+                });
+                if (res.ok) {
+                    alert("Registrazione ok!");
+                    toggleForms();
+                } else { 
+                    const d = await res.json(); 
+                    alert(d.error || "Errore"); 
+                }
+            } catch (e) { alert("Errore connessione"); }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<script>
+    // Impedisce l'accesso se non c'è il token
+    if (!localStorage.getItem('luxusToken')) {
+        window.location.href = 'login.html';
+    }
+</script>
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Luxus Aurea - Gestione Sostanze</title>
+    <link rel="stylesheet" href="style.css"> <!-- Usiamo lo stesso stile della index -->
+    <style>
+        .admin-container { max-width: 800px; margin: 20px auto; padding: 20px; background: white; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #f4f4f4; }
+        .btn-del { background: #ff4d4d; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; }
+        .form-group { margin-bottom: 15px; display: flex; gap: 10px; align-items: flex-end; }
+        input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <h1>Gestione Database Sostanze</h1>
+        <a href="index.html">← Torna all'Analisi</a>
+        <hr>
+        
+        <h3>Aggiungi Sostanza (Aggiornamenti 2026)</h3>
+        <div class="form-group">
+            <div><label>CAS</label><br><input type="text" id="cas" placeholder="es. 104-55-2"></div>
+            <div><label>Nome</label><br><input type="text" id="nome" placeholder="es. Cinnamal"></div>
+            <div><label>SCL (%)</label><br><input type="number" id="scl" step="0.001" value="1.0"></div>
+            <button onclick="addSubstance()" style="padding: 8px 20px; background: #2c3e50; color: white; border: none; border-radius: 4px; cursor: pointer;">Salva</button>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>CAS</th>
+                    <th>Nome</th>
+                    <th>SCL</th>
+                    <th>Azioni</th>
+                </tr>
+            </thead>
+            <tbody id="substanceList">
+                <!-- Qui appariranno le sostanze -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // --- INIZIO MODIFICA URL DINAMICO ---
+        // Se l'host è locale usa localhost, altrimenti usa il dominio di produzione
+        const BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+            ? 'https://luxus-aurea-backend.onrender.com/api'
+            : 'https://api.iltuodominio.com/api'; // Sostituisci "iltuodominio.com" con il tuo dominio reale in futuro
+
+        const API_URL = `${BASE_URL}/substances`;
+        // --- FINE MODIFICA ---
+
+        // Carica le sostanze all'avvio
+        async function loadSubstances() {
+            const res = await fetch(API_URL);
+            const data = await res.json();
+            const list = document.getElementById('substanceList');
+            list.innerHTML = '';
+            data.forEach(s => {
+                list.innerHTML += `
+                    <tr>
+                        <td>${s.cas}</td>
+                        <td>${s.nome}</td>
+                        <td>${s.scl}%</td>
+                        <td><button class="btn-del" onclick="deleteSubstance('${s._id}')">Elimina</button></td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Aggiunge una nuova sostanza
+        async function addSubstance() {
+            const cas = document.getElementById('cas').value;
+            const nome = document.getElementById('nome').value;
+            const scl = document.getElementById('scl').value;
+
+            if(!cas || !nome) return alert("Inserisci CAS e Nome");
+
+            await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cas, nome, scl })
+            });
+            
+            document.getElementById('cas').value = '';
+            document.getElementById('nome').value = '';
+            loadSubstances();
+        }
+
+        // Elimina una sostanza
+        async function deleteSubstance(id) {
+            if(confirm("Sicuro di voler eliminare questa sostanza?")) {
+                await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+                loadSubstances();
+            }
+        }
+
+        loadSubstances();
+    </script>
+</body>
+</html>

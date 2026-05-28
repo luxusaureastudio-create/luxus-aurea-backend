@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Password - Luxus Aurea</title>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #1e293b; font-family: sans-serif; }
+        .auth-card { background: white; padding: 40px; border-radius: 20px; width: 100%; max-width: 350px; text-align: center; }
+        input { width: 100%; padding: 12px; margin: 15px 0; border: 1px solid #ccc; border-radius: 10px; box-sizing: border-box; }
+        button { background: #b59a5b; color: white; border: none; padding: 12px 20px; width: 100%; border-radius: 10px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="auth-card">
+        <h2>Nuova Password</h2>
+        <input type="password" id="newPassword" placeholder="Inserisci nuova password">
+        <button onclick="eseguiReset()">CONFERMA</button>
+    </div>
+
+    <script>
+        // Usa lo stesso URL del backend
+        const BASE_URL = "https://safetydata-backend.onrender.com";
+
+        async function eseguiReset() {
+            const password = document.getElementById('newPassword').value;
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token');
+
+            if (!password) return alert("Inserisci una password.");
+            if (!token) return alert("Token non trovato nell'URL.");
+
+            try {
+                const res = await fetch(`${BASE_URL}/api/reset-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token, password })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    alert("Password aggiornata con successo!");
+                    window.location.href = 'login.html';
+                } else {
+                    alert(data.error || "Errore nel reset.");
+                }
+            } catch (e) {
+                alert("Errore di connessione al server.");
+            }
+        }
+    </script>
+</body>
+</html>

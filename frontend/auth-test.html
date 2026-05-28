@@ -1,0 +1,66 @@
+<script>
+    // 1. URL corretto del tuo backend
+    const BASE_URL = 'https://luxus-aurea-backend.onrender.com/api';
+
+    function logToConsole(message) {
+        document.getElementById('console').innerText = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
+    }
+
+    async function register() {
+        const email = document.getElementById('regEmail').value;
+        const password = document.getElementById('regPassword').value;
+
+        try {
+            // 2. CAMBIATO da /register a /signup per combaciare con server.js
+            const res = await fetch(`${BASE_URL}/signup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            logToConsole(data);
+        } catch (err) { logToConsole("Errore di connessione al server"); }
+    }
+
+    async function login() {
+        const email = document.getElementById('loginEmail').value;
+        const password = document.getElementById('loginPassword').value;
+
+        try {
+            const res = await fetch(`${BASE_URL}/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            
+            if (data.token) {
+                // 3. Salviamo il token con lo stesso nome usato in app.js
+                localStorage.setItem('luxusToken', data.token);
+                logToConsole("✅ Login effettuato!\n\nToken salvato:\n" + data.token);
+            } else {
+                logToConsole(data);
+            }
+        } catch (err) { logToConsole("Errore di connessione al server"); }
+    }
+
+    async function testAuth() {
+        const token = localStorage.getItem('luxusToken');
+
+        if (!token) {
+            return logToConsole("❌ Nessun token trovato. Fai il login!");
+        }
+
+        try {
+            // 4. CAMBIATO da /test-auth a /user-info (che esiste davvero nel tuo server.js)
+            const res = await fetch(`${BASE_URL}/user-info`, {
+                method: 'GET',
+                headers: { 
+                    'Authorization': `Bearer ${token}` 
+                }
+            });
+            const data = await res.json();
+            logToConsole(data);
+        } catch (err) { logToConsole("Errore di connessione"); }
+    }
+</script>
