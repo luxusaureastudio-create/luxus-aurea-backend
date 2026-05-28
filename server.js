@@ -252,13 +252,10 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
         const { pacchetto, importoPersonalizzato } = req.body;
         const clientUrl = process.env.CLIENT_URL || 'https://safetydata-backend.onrender.com';
 
-        // Creazione sessione Stripe con raccolta dati fiscali
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
-            billing_address_collection: 'required', // Indirizzo obbligatorio
-            tax_id_collection: {
-                enabled: true, // Attiva campo P.IVA/Codice Fiscale
-            },
+            billing_address_collection: 'required',
+            tax_id_collection: { enabled: true },
             line_items: [{
                 price_data: { 
                     currency: 'eur', 
@@ -270,15 +267,44 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
             mode: 'payment',
             success_url: `${clientUrl}/index.html?success=true`,
             cancel_url: `${clientUrl}/index.html?canceled=true`,
+            // Importante: passiamo l'ID utente nei metadati
+            metadata: {
+                tipo_acquisto: 'pacchetto_app',
+                userId: req.user._id.toString(), 
+                pacchetto: pacchetto
+            }
         });
 
-        // Invio dell'URL al frontend per il redirect
         res.json({ url: session.url });
-
     } catch (error) {
         console.error("Errore Stripe:", error.message);
-        res.status(500).json({ error: "Errore nella creazione della sessione di pagamento." });
+        res.status(500).json({ error: "Errore nella creazione della sessione." });
     }
+});
+
+app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    let event;
+
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+
+        if (session.metadata.tipo_acquisto === 'pacchetto_app') {
+            const userId = session.metadata.userId;
+            const creditiDaAggiungere = session.metadata.pacchetto === 'PRO' ? 25 : 10; // Esempio logica
+            
+            await User.findByIdAndUpdate(userId, { $inc: { credits: creditiDaAggiungere } });
+            console.log("✅ Crediti aggiornati per l'utente:", userId);
+        }
+    }
+
+    res.json({ received: true });
 });
 
 app.use(express.static(path.join(__dirname, 'frontend')));
