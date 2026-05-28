@@ -254,6 +254,8 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
+            billing_address_collection: 'required',
+            customer_update: { address: 'auto' },
             line_items: [{
                 price_data: { 
                     currency: 'eur', 
@@ -268,7 +270,7 @@ app.post('/api/create-checkout', verifyToken, async (req, res) => {
         });
         res.json({ url: session.url });
     } catch (error) {
-        res.status(500).json({ error: "Errore Stripe." });
+        res.status(500).json({ error: "Errore Stripe: " + error.message });
     }
 });
 
