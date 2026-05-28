@@ -26,19 +26,21 @@ async function aggiornaCrediti() {
 }
 
 // --- LOGICA PITTOGRAMMI GHS (CLP Compliance) ---
+// --- LOGICA PITTOGRAMMI GHS (Mirata per Candele) ---
 function generaIconeGHS(listaH) {
-    let html = "";
-    const hasGHS05 = listaH.some(h => h === 'H314' || h === 'H318');
-    const hasGHS07 = listaH.some(h => ['H317', 'H319', 'H302', 'H315'].includes(h));
-    const hasGHS08 = listaH.some(h => h.startsWith('H34') || h.startsWith('H35') || h.startsWith('H36'));
-    // GHS09 scatta solo per i pericoli ambientali gravi: H400, H410, H411 (L'H412 NON ha icona)
-    const hasGHS09 = listaH.some(h => ['H400', 'H410', 'H411'].includes(h));
+    let html = "";
+    
+    const hasGHS05 = listaH.some(h => h === 'H318' || h === 'H314');
+    const hasGHS07 = listaH.some(h => ['H317', 'H315', 'H319'].includes(h));
+    const hasGHS08 = listaH.some(h => h === 'H360');
+    const hasGHS09 = listaH.some(h => ['H400', 'H410', 'H411'].includes(h));
 
-    if (hasGHS05) html += `<div style="text-align:center;"><img src="ghs05.png" style="height:60px;"><br><small style="font-size:8px;">GHS05</small></div>`;
-    if (hasGHS07) html += `<div style="text-align:center;"><img src="ghs07.png" style="height:60px;"><br><small style="font-size:8px;">GHS07</small></div>`;
-    if (hasGHS08) html += `<div style="text-align:center;"><img src="ghs08.png" style="height:60px;"><br><small style="font-size:8px;">GHS08</small></div>`;
-    if (hasGHS09) html += `<div style="text-align:center;"><img src="ghs09.png" style="height:60px;"><br><small style="font-size:8px;">GHS09</small></div>`;
-    return html;
+    if (hasGHS05) html += `<div style="text-align:center;"><img src="icons/ghs05.png" style="height:60px;"><br><small style="font-size:8px;">GHS05</small></div>`;
+    if (hasGHS07) html += `<div style="text-align:center;"><img src="icons/ghs07.png" style="height:60px;"><br><small style="font-size:8px;">GHS07</small></div>`;
+    if (hasGHS08) html += `<div style="text-align:center;"><img src="icons/ghs08.png" style="height:60px;"><br><small style="font-size:8px;">GHS08</small></div>`;
+    if (hasGHS09) html += `<div style="text-align:center;"><img src="icons/ghs09.png" style="height:60px;"><br><small style="font-size:8px;">GHS09</small></div>`;
+    
+    return html;
 }
 
 // --- UPLOAD E ANALISI IA ---
@@ -182,26 +184,36 @@ async function runAnalysis() {
     const colori = ['#b59a5b', '#1e293b', '#475569', '#94a3b8', '#cbd5e1', '#e2e8f0'];
 
     resultsDiv.innerHTML = `
-        <div style="background:white; padding:40px; border:1.5px solid #000; font-family:Arial; margin-top:30px; color:#1e293b;">
-            <h2 style="text-align:center; text-transform:uppercase; margin-bottom:20px;">Report Tecnico di Conformità</h2>
-            ${containsEndocrine ? `<div style="padding:15px; border:2px solid #b91c1c; text-align:center; margin-bottom:20px; background:#fef2f2; color:#b91c1c;"><strong>🚨 ALLERTA XXII ATP: INTERFERENTE ENDOCRINO 🚨</strong></div>` : ''}
-            <div style="padding:15px; border:1px solid #000; text-align:center; margin-bottom:30px; background:${scattaUFI ? '#fef2f2' : '#fff'};"><strong style="font-size:13px; color:${scattaUFI ? '#b91c1c' : '#1e293b'}">${scattaUFI ? '⚠️ OBBLIGO NOTIFICA PCN / UFI' : 'NOTIFICA NON RICHIESTA'}</strong></div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:30px; font-weight:bold; border-bottom:1px solid #eee; padding-bottom:15px;">
-                <span>ESITO IFRA: <b style="color:${isSafe ? 'green' : 'red'};">${isSafe ? 'CONFORME' : 'NON CONFORME'}</b></span>
-                <span>COSTO: € ${costoFinale.toFixed(2)} / kg</span>
-            </div>
-            <div style="display:grid; grid-template-columns: 1fr 1.3fr; gap:40px;">
-                <div><canvas id="chartPie" style="max-height:160px;"></canvas><div id="legendaColori" style="margin-top:20px; font-size:10px;"></div></div>
-                <div style="border:1.5px solid #000; padding:15px;">
-                    <h4 style="text-align:center; font-size:11px; margin-top:0;">CLP REG. 1272/2008</h4>
-                    <div style="display:flex; justify-content:center; gap:10px; margin:15px 0;">${pittogrammiHTML || '<span style="font-size:10px;">Nessun Pittogramma Richiesto</span>'}</div>
-                    <div style="color:#b91c1c; font-weight:bold; text-align:center; font-size:12px; margin-bottom:10px;">${listaH_finali.join(', ') || 'NESSUN PERICOLO CLASSIFICATO'}</div>
-                    <div style="font-size:10px; border-top:1px solid #000; padding-top:10px;">${frasiEtichetta.join('<br><br>')}</div>
-                </div>
-            </div>
-            <div style="text-align:center; margin-top:30px;"><button onclick="salvaInArchivio()" style="background:#1e293b; color:white; padding:10px 20px; border:none; cursor:pointer; border-radius:8px;">SALVA IN ARCHIVIO</button></div>
-        </div>
-    `;
+        <div style="background:white; padding:40px; border:1.5px solid #000; font-family:Arial; margin-top:30px; color:#1e293b;">
+            <h2 style="text-align:center; text-transform:uppercase; margin-bottom:20px;">Report Tecnico di Conformità</h2>
+            ${containsEndocrine ? `<div style="padding:15px; border:2px solid #b91c1c; text-align:center; margin-bottom:20px; background:#fef2f2; color:#b91c1c;"><strong>🚨 ALLERTA XXII ATP: INTERFERENTE ENDOCRINO 🚨</strong></div>` : ''}
+            <div style="padding:15px; border:1px solid #000; text-align:center; margin-bottom:30px; background:${scattaUFI ? '#fef2f2' : '#fff'};"><strong style="font-size:13px; color:${scattaUFI ? '#b91c1c' : '#1e293b'}">${scattaUFI ? '⚠️ OBBLIGO NOTIFICA PCN / UFI' : 'NOTIFICA NON RICHIESTA'}</strong></div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:30px; font-weight:bold; border-bottom:1px solid #eee; padding-bottom:15px;">
+                <span>ESITO IFRA: <b style="color:${isSafe ? 'green' : 'red'};">${isSafe ? 'CONFORME' : 'NON CONFORME'}</b></span>
+                <span>COSTO: € ${costoFinale.toFixed(2)} / kg</span>
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr 1.3fr; gap:40px;">
+                <div><canvas id="chartPie" style="max-height:160px;"></canvas><div id="legendaColori" style="margin-top:20px; font-size:10px;"></div></div>
+                <div style="border:1.5px solid #000; padding:15px;">
+                    <h4 style="text-align:center; font-size:11px; margin-top:0;">CLP REG. 1272/2008</h4>
+                    <div style="display:flex; justify-content:center; gap:10px; margin:15px 0;">${pittogrammiHTML || '<span style="font-size:10px;">Nessun Pittogramma Richiesto</span>'}</div>
+                    <div style="color:#b91c1c; font-weight:bold; text-align:center; font-size:12px; margin-bottom:10px;">${listaH_finali.join(', ') || 'NESSUN PERICOLO CLASSIFICATO'}</div>
+                    <div style="font-size:10px; border-top:1px solid #000; padding-top:10px;">${frasiEtichetta.join('<br><br>')}</div>
+                    
+                                        <div style="border-top:1px solid #eee; padding-top:15px; margin-top:15px;">
+                        <h4 style="text-align:center; font-size:10px; margin-top:0; color:#64748b;">SICUREZZA CANDELA (EN 15494)</h4>
+                        <div style="display:flex; justify-content:center; gap:12px;">
+                            <img src="icons/warning-triangle.svg" style="height:30px;" title="Attenzione">
+                            <img src="icons/no-unattended.png" style="height:30px;" title="Non lasciare incustodita">
+                            <img src="icons/keep-away-pets.png" style="height:30px;" title="Tenere lontano da bambini e animali">
+                            <img src="icons/distance-safety.png" style="height:30px;" title="Distanza tra candele">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div style="text-align:center; margin-top:30px;"><button onclick="salvaInArchivio()" style="background:#1e293b; color:white; padding:10px 20px; border:none; cursor:pointer; border-radius:8px;">SALVA IN ARCHIVIO</button></div>
+        </div>
+    `;
 
     const legDiv = document.getElementById('legendaColori');
     legDiv.innerHTML = labelsGrafico.slice(0,8).map((l, i) => `<div><span style="color:${colori[i % 6]}">■</span> ${l} (${datiGrafico[i].toFixed(2)}%)</div>`).join('');
