@@ -45,7 +45,7 @@ const User = mongoose.model('User', new mongoose.Schema({
     companyName: String,
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    credits: { type: Number, default: 10 }
+    credits: { type: Number, default: 1 }
 }));
 
 const Report = mongoose.model('Report', new mongoose.Schema({
