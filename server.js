@@ -94,31 +94,26 @@ app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Repor
 // ✅ Analisi PDF — CORRETTA
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
+        if (!req.file) return res.status(400).json({ error: "Nessun file" });
 
-        // Non usiamo più pdf-parse. Inviamo il buffer a Gemini.
-       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // 1. Leggiamo il PDF come testo semplice (senza librerie pesanti)
+        // Usiamo un trucco: PDF è un file binario, leggiamolo come stringa
+        const pdfContent = req.file.buffer.toString('latin1'); 
 
-        // Gemini legge il PDF direttamente dal buffer
-        const result = await model.generateContent([
-    { text: "Analizza questo PDF. Estrai: nome, cas, concentrazione, clp. Rispondi solo in JSON." },
-    {
-        inlineData: {
-            data: req.file.buffer.toString("base64"),
-            mimeType: "application/pdf"
-        }
-    }
-]);
+        // 2. Inviamo a Gemini SOLO il testo, senza caricare il file binario
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await model.generateContent(
+            "Analizza il seguente contenuto di un PDF e rispondi solo in JSON: " + pdfContent.substring(0, 10000)
+        );
 
         const jsonText = result.response.text().replace(/```json|```/g, "").trim();
         res.json({ analysis: JSON.parse(jsonText) });
 
     } catch (error) {
-        console.error("ERRORE ANALISI:", error);
-        res.status(500).json({ error: "Errore durante l'analisi: " + error.message });
+        console.error("ERRORE FINALE:", error);
+        res.status(500).json({ error: "Errore di analisi." });
     }
 });
-
 // Statico e Pagamenti
 app.use(express.static(path.join(__dirname, 'frontend')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'index.html')));
