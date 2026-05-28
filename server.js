@@ -65,11 +65,22 @@ const verifyToken = async (req, res, next) => {
 
 // --- ROTTE API ---
 app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ error: "Credenziali errate" });
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token });
+    try {
+        const { email, password } = req.body;
+        console.log("Tentativo di login per:", email); // Log interno su Render
+        
+        const user = await User.findOne({ email });
+        if (!user) return res.status(401).json({ error: "Utente non trovato" });
+        
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(401).json({ error: "Credenziali errate" });
+        
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        res.json({ token });
+    } catch (error) {
+        console.error("ERRORE LOGIN:", error); // Fondamentale per vedere cosa crasha
+        res.status(500).json({ error: "Errore server: " + error.message });
+    }
 });
 
 app.post('/api/register', async (req, res) => {
