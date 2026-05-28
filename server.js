@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
-const pdfParse = require('pdf-parse');
+const pdfParse = require('pdf-parse'); // ✅ Import corretto, in cima
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
 const path = require('path');
@@ -13,18 +13,13 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy
 
 const app = express();
 
-// Configurazione Middleware
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Inizializzazioni Globali
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log("✅ Connesso a MongoDB"))
-    .catch(err => {
-        console.error("❌ ERRORE CRITICO DB:", err);
-        process.exit(1);
-    });
+    .catch(err => { console.error("❌ ERRORE CRITICO DB:", err); process.exit(1); });
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -70,7 +65,7 @@ app.post('/api/login', async (req, res) => {
         if (!user) return res.status(401).json({ error: "Utente non trovato" });
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(401).json({ error: "Credenziali errate" });
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' }); // ✅ 24h invece di 1h
         res.json({ token });
     } catch (error) {
         res.status(500).json({ error: "Errore interno: " + error.message });
@@ -92,26 +87,29 @@ app.post('/api/register', async (req, res) => {
 app.get('/api/user-info', verifyToken, (req, res) => res.json({ credits: req.user.credits }));
 app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Report.find({ userId: req.user._id })));
 
-// Analisi PDF
+// ✅ Analisi PDF — CORRETTA
 app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
 
-        // Usiamo la funzione caricata correttamente
-        const pdfData = await pdfParse(req.file.buffer); 
+        // ✅ Variabile usata coerentemente come "pdfData"
+        const pdfData = await pdfParse(req.file.buffer);
 
         if (!pdfData.text || pdfData.text.length < 50) {
-            return res.status(400).json({ error: "PDF non leggibile" });
+            return res.status(400).json({ error: "PDF non leggibile o vuoto" });
         }
 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent(`Analizza: ${pdfData.text}. Estrai: nome, cas, concentrazione, clp. Solo JSON.`);
+        const result = await model.generateContent(
+            `Analizza questa scheda di sicurezza: ${pdfData.text}. Estrai: nome, cas, concentrazione, clp. Rispondi solo in JSON valido, senza backtick.`
+        );
 
         const jsonText = result.response.text().replace(/```json|```/g, "").trim();
         res.json({ analysis: JSON.parse(jsonText) });
+
     } catch (error) {
         console.error("ERRORE ANALISI:", error);
-        res.status(500).json({ error: "Errore interno server." });
+        res.status(500).json({ error: "Errore interno server: " + error.message });
     }
 });
 
