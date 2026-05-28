@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
-const pdfParse = require('pdf-parse'); // ✅ Import corretto, in cima
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');
 const path = require('path');
@@ -92,24 +91,26 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
     try {
         if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
 
-        // ✅ Variabile usata coerentemente come "pdfData"
-        const pdfData = await pdfParse(req.file.buffer);
-
-        if (!pdfData.text || pdfData.text.length < 50) {
-            return res.status(400).json({ error: "PDF non leggibile o vuoto" });
-        }
-
+        // Non usiamo più pdf-parse. Inviamo il buffer a Gemini.
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent(
-            `Analizza questa scheda di sicurezza: ${pdfData.text}. Estrai: nome, cas, concentrazione, clp. Rispondi solo in JSON valido, senza backtick.`
-        );
+
+        // Gemini legge il PDF direttamente dal buffer
+        const result = await model.generateContent([
+            "Analizza questo documento PDF e rispondi solo in formato JSON con questi campi: nome, cas, concentrazione, clp.",
+            {
+                inlineData: {
+                    data: req.file.buffer.toString("base64"),
+                    mimeType: "application/pdf"
+                }
+            }
+        ]);
 
         const jsonText = result.response.text().replace(/```json|```/g, "").trim();
         res.json({ analysis: JSON.parse(jsonText) });
 
     } catch (error) {
         console.error("ERRORE ANALISI:", error);
-        res.status(500).json({ error: "Errore interno server: " + error.message });
+        res.status(500).json({ error: "Errore durante l'analisi: " + error.message });
     }
 });
 
