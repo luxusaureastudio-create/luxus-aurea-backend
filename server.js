@@ -3,8 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
-// Modifica la riga 6 del server.js in questo modo:
-const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+// Cambia la riga 6 in:
+const pdfParse = require('pdf-parse');
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jwt = require('jsonwebtoken');

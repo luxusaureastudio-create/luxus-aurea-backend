@@ -9,7 +9,7 @@ async function aggiornaCrediti() {
     if (!token || !creditsSpan) return;
     try {
         const res = await fetch(`${BASE_URL}/api/user-info`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('luxusToken')}` }
         });
         const data = await res.json();
         if (data.credits !== undefined) {
