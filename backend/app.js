@@ -163,12 +163,24 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
     // ... (continua con il resto del codice riga 147)
         const textResponse = result.response.text();
         
-        // INTEGRAZIONE: Pulizia JSON più robusta
-        const cleanJson = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
-        const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
-        
-        if (!jsonMatch) throw new Error("L'IA non ha restituito un formato JSON valido.");
-        const sdsData = JSON.parse(jsonMatch[0]);
+       // --- INIZIO BLOCCO PARSING ROBUSTO ---
+        let sdsData;
+        try {
+            const cleanJson = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
+            const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+            
+            if (!jsonMatch) throw new Error("Formato JSON non trovato nella risposta");
+            
+            sdsData = JSON.parse(jsonMatch[0]);
+
+            if (!sdsData.components || !Array.isArray(sdsData.components)) {
+                throw new Error("Il JSON non contiene una lista di componenti valida.");
+            }
+        } catch (err) {
+            console.error("ERRORE PARSING JSON:", err.message);
+            return res.status(500).json({ error: "Errore di lettura dati IA. Il documento potrebbe non essere una SDS valida." });
+        }
+        // --- FINE BLOCCO PARSING ROBUSTO ---
 
         const enriched = await Promise.all(sdsData.components.map(async (comp) => {
             const dbSubstance = await Substance.findOne({ cas: comp.cas });
