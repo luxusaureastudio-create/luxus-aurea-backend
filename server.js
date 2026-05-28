@@ -101,10 +101,16 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
         const pdfContent = req.file.buffer.toString('latin1'); 
 
         // 2. Inviamo a Gemini SOLO il testo, senza caricare il file binario
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent(
-            "Analizza il seguente contenuto di un PDF e rispondi solo in JSON: " + pdfContent.substring(0, 10000)
-        );
+        // Usa questa inizializzazione specifica che forza il modello corretto
+const model = genAI.getGenerativeModel({ 
+    model: "gemini-1.5-flash",
+    apiVersion: 'v1beta' // Assicurati di non avere altri override
+});
+
+// E usa questo metodo di generazione:
+const result = await model.generateContent([
+    "Analizza questo testo e rispondi solo in JSON: " + pdfContent.substring(0, 10000)
+]);;
 
         const jsonText = result.response.text().replace(/```json|```/g, "").trim();
         res.json({ analysis: JSON.parse(jsonText) });
