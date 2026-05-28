@@ -26,7 +26,12 @@ if (process.env.SENDGRID_API_KEY) {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
 
+// Inizializzazione corretta per il tuo progetto
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
+// Assicuriamoci che il modello sia istanziato correttamente
+const model = genAI.getGenerativeModel({ 
+    model: "gemini-1.5-flash" 
+});
 
 // Modelli
 const User = mongoose.model('User', new mongoose.Schema({
