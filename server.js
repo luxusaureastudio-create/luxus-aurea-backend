@@ -62,6 +62,7 @@ const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const fs = require('fs');
@@ -101,7 +102,9 @@ const User = mongoose.model('User', new mongoose.Schema({
     companyName: String,
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    credits: { type: Number, default: 1 }
+    credits: { type: Number, default: 1 },
+    resetPasswordToken: String,    // Aggiungi questo
+    resetPasswordExpires: Date     // Aggiungi questo
 }));
 
 const Report = mongoose.model('Report', new mongoose.Schema({
@@ -160,6 +163,60 @@ app.post('/api/register', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: "Errore registrazione" });
     }
+});
+
+app.post('/api/request-reset', async (req, res) => {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: "Utente non trovato." });
+
+    // Genera un token casuale
+    const token = crypto.randomBytes(20).toString('hex');
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = Date.now() + 3600000; // Scade in 1 ora
+    await user.save();
+
+    const resetLink = `https://safetydata-backend.onrender.com/reset.html?token=${token}`;
+    
+    // Invio Email con SendGrid
+    const msg = {
+        to: email,
+        from: 'tua-email-verificata@tuodominio.it',
+        subject: 'Reset Password - Luxus Aurea',
+        text: `Clicca qui per resettare la password: ${resetLink}`
+    };
+
+    try {
+        await sgMail.send(msg);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: "Errore invio email." });
+    }
+});
+app.post('/api/reset-password', async (req, res) => {
+    const { token, password } = req.body;
+
+    // 1. Cerchiamo l'utente che ha quel token valido
+    const user = await User.findOne({
+        resetPasswordToken: token,
+        resetPasswordExpires: { $gt: Date.now() } // Verifica che il token non sia scaduto
+    });
+
+    if (!user) {
+        return res.status(400).json({ error: "Token non valido o scaduto." });
+    }
+
+    // 2. Aggiorniamo la password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.password = hashedPassword;
+    
+    // 3. Puliamo i campi del token
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    
+    await user.save();
+
+    res.json({ success: true, message: "Password aggiornata correttamente." });
 });
 
 app.get('/api/user-info', verifyToken, (req, res) => res.json({ credits: req.user.credits }));
