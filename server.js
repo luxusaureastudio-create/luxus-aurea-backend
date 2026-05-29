@@ -33,38 +33,49 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Gestione dell'evento
-    if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
+  // Gestione dell'evento
+if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
 
-        // VALIDAZIONE: Controlla che metadata e userId esistano
-        if (session.metadata && session.metadata.tipo_acquisto === 'pacchetto_app' && session.metadata.userId) {
-            const pacchetti = { 'Discovery': 5, 'Stagionale': 12, 'PRO': 25 };
-            const crediti = pacchetti[session.metadata.pacchetto] || 0;
+    // VALIDAZIONE: Controlla che metadata e userId esistano
+    if (session.metadata && session.metadata.tipo_acquisto === 'pacchetto_app' && session.metadata.userId) {
+        const pacchetti = { 'Discovery': 5, 'Stagionale': 12, 'PRO': 25 };
+        const crediti = pacchetti[session.metadata.pacchetto] || 0;
 
-            try {
-                // Aggiornamento atomico dei crediti
-                const user = await User.findByIdAndUpdate(
-                    session.metadata.userId, 
-                    { $inc: { credits: crediti } },
-                    { new: true } // Opzionale: restituisce l'utente aggiornato
-                );
+        try {
+            // Aggiornamento atomico dei crediti
+            const user = await User.findByIdAndUpdate(
+                session.metadata.userId, 
+                { $inc: { credits: crediti } },
+                { new: true } 
+            );
 
-                if (!user) {
-                    console.error(`⚠️ Utente non trovato nel DB: ${session.metadata.userId}`);
+            if (!user) {
+                console.error(`⚠️ Utente non trovato nel DB: ${session.metadata.userId}`);
+            // ... codice precedente ...
                 } else {
                     console.log(`✅ Crediti aggiornati per ${user._id}: +${crediti}`);
-                }
+                    
+                    try {
+                        await sgMail.send({
+                            to: session.customer_details.email,
+                            from: 'luxusaureastudio@gmail.com',
+                            subject: 'Conferma acquisto crediti',
+                            text: `Crediti accreditati: ${crediti}`
+                        });
+                        console.log("📧 Email inviata!");
+                    } catch (mailErr) {
+                        console.error("❌ Errore email:", mailErr.message);
+                    }
+                } // Chiude l'else
             } catch (dbErr) {
-                console.error(`❌ Errore database durante aggiornamento crediti: ${dbErr.message}`);
+                console.error(`❌ Errore database: ${dbErr.message}`);
                 return res.status(500).send('Database Error');
             }
-        }
-    }
-
-    // Risposta 200 a Stripe per confermare la ricezione
+        } // Chiude l'if session.metadata
+    } // Chiude l'if event.type
     res.json({ received: true });
-});
+}); // <--- QUESTA CHIUDE L'app.post('/webhook'
 
 // 3. ORA puoi attivare express.json (fondamentale che sia DOPO)
 app.use(express.json());
