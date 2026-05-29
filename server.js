@@ -141,6 +141,7 @@ app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
         const user = await User.findOne({ email });
+        console.log("DEBUG UTENTE:", user);
         if (!user) return res.status(401).json({ error: "Utente non trovato" });
         
         const isMatch = await bcrypt.compare(password, user.password);
@@ -165,6 +166,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
+// ROTTA CORRETTA PER RICHIESTA RESET
 app.post('/api/request-reset', async (req, res) => {
     const { email } = req.body;
     const user = await User.findOne({ email });
@@ -178,39 +180,41 @@ app.post('/api/request-reset', async (req, res) => {
 
     const resetLink = `https://safetydata-backend.onrender.com/reset.html?token=${token}`;
     
+    // Log per debug su Render
+    console.log("LINK DI RESET GENERATO:", resetLink);
+    
     // Invio Email con SendGrid
     const msg = {
         to: email,
-        from: 'tua-email-verificata@tuodominio.it',
+        from: 'la-tua-email-verificata@tuodominio.it', // Sostituisci con la tua email validata
         subject: 'Reset Password - Luxus Aurea',
-        text: `Clicca qui per resettare la password: ${resetLink}`
+        text: `Clicca qui per resettare la password: ${resetLink}`,
+        html: `<p>Clicca sul link sottostante per resettare la tua password:</p><a href="${resetLink}">Reset Password</a>`
     };
 
     try {
         await sgMail.send(msg);
         res.json({ success: true });
     } catch (e) {
+        console.error("Errore SendGrid:", e);
         res.status(500).json({ error: "Errore invio email." });
     }
 });
+
+// ROTTA PER RESET PASSWORD
 app.post('/api/reset-password', async (req, res) => {
     const { token, password } = req.body;
 
-    // 1. Cerchiamo l'utente che ha quel token valido
     const user = await User.findOne({
         resetPasswordToken: token,
-        resetPasswordExpires: { $gt: Date.now() } // Verifica che il token non sia scaduto
+        resetPasswordExpires: { $gt: Date.now() } 
     });
 
     if (!user) {
         return res.status(400).json({ error: "Token non valido o scaduto." });
     }
 
-    // 2. Aggiorniamo la password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    user.password = hashedPassword;
-    
-    // 3. Puliamo i campi del token
+    user.password = await bcrypt.hash(password, 10);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     
@@ -221,7 +225,6 @@ app.post('/api/reset-password', async (req, res) => {
 
 app.get('/api/user-info', verifyToken, (req, res) => res.json({ credits: req.user.credits }));
 app.get('/api/my-archive', verifyToken, async (req, res) => res.json(await Report.find({ userId: req.user._id })));
-
 // ==========================================
 // ROTTE API - ANALISI PDF (IL METODO DEFINITIVO)
 // ==========================================
