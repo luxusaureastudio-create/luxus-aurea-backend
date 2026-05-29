@@ -1,9 +1,16 @@
 require('dotenv').config();
 const express = require('express');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // Assicurati di averla definita
+const sgMail = require('@sendgrid/mail');
+const User = require('./models/User'); // Assicurati che il percorso sia corretto
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 const app = express();
+
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
+
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
     } catch (err) {
@@ -26,20 +33,19 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
             const user = await User.findByIdAndUpdate(
                 session.metadata.userId, 
                 { $inc: { credits: creditiDaAggiungere } },
-                { new: true } // Restituisce l'utente aggiornato
+                { new: true }
             );
 
             // 2. Invia Email con SendGrid
             if (user) {
                 const msg = {
-                    to: session.customer_details.email, // Email del cliente
-                    from: 'luxusaureastudio@gmail.com', // <--- METTI QUI LA TUA EMAIL VERIFICATA SU SENDGRID
+                    to: session.customer_details.email,
+                    from: 'luxusaureastudio@gmail.com',
                     subject: 'Conferma acquisto crediti - Luxus Aurea',
                     text: `Ciao ${session.customer_details.name || 'Cliente'}, grazie per il tuo acquisto! Ti sono stati accreditati ${creditiDaAggiungere} crediti.`,
                     html: `<p>Ciao ${session.customer_details.name || 'Cliente'},</p>
                            <p>Grazie per il tuo acquisto su <strong>Luxus Aurea</strong>!</p>
-                           <p>Ti sono stati accreditati <strong>${creditiDaAggiungere} crediti</strong> sul tuo account.</p>
-                           <p>Puoi iniziare subito ad analizzare le tue schede di sicurezza.</p>`
+                           <p>Ti sono stati accreditati <strong>${creditiDaAggiungere} crediti</strong> sul tuo account.</p>`
                 };
 
                 try {
@@ -55,7 +61,6 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     
     res.json({ received: true });
 });
-
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
