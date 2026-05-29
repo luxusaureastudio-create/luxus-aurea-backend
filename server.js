@@ -214,6 +214,7 @@ app.post('/api/register', async (req, res) => {
 // ROTTA CORRETTA PER RICHIESTA RESET
 app.post('/api/request-reset', async (req, res) => {
     const { email } = req.body;
+    const user = await User.findOne({ email });
         if (!user) return res.status(404).json({ error: "Utente non trovato." });
 
     const token = crypto.randomBytes(20).toString('hex');
