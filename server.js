@@ -167,18 +167,24 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ROTTA CORRETTA PER RICHIESTA RESET
-app.post('/api/request-reset', async (req, res) => {
+aapp.post('/api/request-reset', async (req, res) => {
     const { email } = req.body;
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ error: "Utente non trovato." });
 
-    // Genera un token casuale
     const token = crypto.randomBytes(20).toString('hex');
     user.resetPasswordToken = token;
-    user.resetPasswordExpires = Date.now() + 3600000; // Scade in 1 ora
+    user.resetPasswordExpires = Date.now() + 3600000;
     await user.save();
 
     const resetLink = `https://safetydata-backend.onrender.com/reset.html?token=${token}`;
+    
+    // DEBUG: Stampiamo il link nei log di Render invece di inviare l'email
+    console.log("DEBUG - LINK DI RESET DA COPIARE:", resetLink);
+    
+    // Rispondiamo al frontend dicendo che è tutto ok
+    res.json({ success: true, message: "Controlla i log di Render per il link." });
+});
     
     // Log per debug su Render
     console.log("LINK DI RESET GENERATO:", resetLink);
@@ -186,7 +192,7 @@ app.post('/api/request-reset', async (req, res) => {
     // Invio Email con SendGrid
     const msg = {
         to: email,
-        from: 'la-tua-email-verificata@tuodominio.it', // Sostituisci con la tua email validata
+        from: 'luxusaureastudio@gmail.com', // Deve essere identica a quella verificata su SendGrid
         subject: 'Reset Password - Luxus Aurea',
         text: `Clicca qui per resettare la password: ${resetLink}`,
         html: `<p>Clicca sul link sottostante per resettare la tua password:</p><a href="${resetLink}">Reset Password</a>`
@@ -199,7 +205,6 @@ app.post('/api/request-reset', async (req, res) => {
         console.error("Errore SendGrid:", e);
         res.status(500).json({ error: "Errore invio email." });
     }
-});
 
 // ROTTA PER RESET PASSWORD
 app.post('/api/reset-password', async (req, res) => {
