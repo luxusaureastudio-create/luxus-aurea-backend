@@ -68,7 +68,6 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const fs = require('fs');
 const os = require('os');
