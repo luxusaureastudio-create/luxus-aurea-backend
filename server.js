@@ -167,7 +167,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ROTTA CORRETTA PER RICHIESTA RESET
-aapp.post('/api/request-reset', async (req, res) => {
+app.post('/api/request-reset', async (req, res) => {
     const { email } = req.body;
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ error: "Utente non trovato." });
@@ -179,20 +179,13 @@ aapp.post('/api/request-reset', async (req, res) => {
 
     const resetLink = `https://safetydata-backend.onrender.com/reset.html?token=${token}`;
     
-    // DEBUG: Stampiamo il link nei log di Render invece di inviare l'email
-    console.log("DEBUG - LINK DI RESET DA COPIARE:", resetLink);
-    
-    // Rispondiamo al frontend dicendo che è tutto ok
-    res.json({ success: true, message: "Controlla i log di Render per il link." });
-});
-    
-    // Log per debug su Render
+    // Log per debug
     console.log("LINK DI RESET GENERATO:", resetLink);
     
     // Invio Email con SendGrid
     const msg = {
         to: email,
-        from: 'luxusaureastudio@gmail.com', // Deve essere identica a quella verificata su SendGrid
+        from: 'luxusaureastudio@gmail.com', 
         subject: 'Reset Password - Luxus Aurea',
         text: `Clicca qui per resettare la password: ${resetLink}`,
         html: `<p>Clicca sul link sottostante per resettare la tua password:</p><a href="${resetLink}">Reset Password</a>`
@@ -200,11 +193,13 @@ aapp.post('/api/request-reset', async (req, res) => {
 
     try {
         await sgMail.send(msg);
-        res.json({ success: true });
+        res.json({ success: true, message: "Email inviata con successo." });
     } catch (e) {
         console.error("Errore SendGrid:", e);
-        res.status(500).json({ error: "Errore invio email." });
+        // Se SendGrid fallisce, restituiamo comunque il link nei log per non bloccare l'utente
+        res.status(500).json({ error: "Errore invio email, contatta l'assistenza." });
     }
+});
 
 // ROTTA PER RESET PASSWORD
 app.post('/api/reset-password', async (req, res) => {
