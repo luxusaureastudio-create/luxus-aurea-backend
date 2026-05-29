@@ -77,6 +77,52 @@ if (event.type === 'checkout.session.completed') {
     res.json({ received: true });
 }); // <--- QUESTA CHIUDE L'app.post('/webhook'
 
+// --- NUOVO ENDPOINT PER CHECKOUT DINAMICO ---
+app.post('/create-checkout-session', async (req, res) => {
+    const { pacchetto, userId } = req.body;
+
+    // Definiamo i prezzi in centesimi (ESEMPIO: 7.90€ -> 790, 14.90€ -> 1490, 24.90€ -> 2490)
+    const prezzi = { 
+        'Discovery': 790, 
+        'Stagionale': 1490, 
+        'PRO': 2490 
+    };
+
+    const crediti = { 'Discovery': 5, 'Stagionale': 12, 'PRO': 25 };
+
+    if (!prezzi[pacchetto]) {
+        return res.status(400).json({ error: 'Pacchetto non valido' });
+    }
+
+    try {
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [{
+                price_data: {
+                    currency: 'eur',
+                    product_data: { name: `Pacchetto ${pacchetto}` },
+                    unit_amount: prezzi[pacchetto], // <--- ORA PRENDE IL PREZZO GIUSTO!
+                },
+                quantity: 1,
+            }],
+            // ... il resto del codice rimane uguale ...
+            metadata: {
+                tipo_acquisto: 'pacchetto_app',
+                pacchetto: pacchetto,
+                userId: userId // Questo arriverà dal tuo frontend!
+            },
+            mode: 'payment',
+            success_url: 'https://tuosito.com/success', // Cambia con il tuo link reale
+            cancel_url: 'https://tuosito.com/cancel',
+        });
+        
+        res.json({ url: session.url });
+    } catch (err) {
+        console.error("❌ Errore creazione sessione:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 3. ORA puoi attivare express.json (fondamentale che sia DOPO)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
