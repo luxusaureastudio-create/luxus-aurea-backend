@@ -13,92 +13,60 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const sgMail = require('@sendgrid/mail');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { GoogleAIFileManager } = require("@google/generative-ai/server");
-
-// Importa il modello User (assicurati che il percorso sia esatto)
-const User = require('./models/User'); 
-
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 const app = express();
 
-// Middleware base
+// 1. CORS va per primo
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 
-// ROTTA WEBHOOK (Deve stare prima di app.use(express.json()))
+// 2. WEBHOOK (DEVE STARE QUI, PRIMA DI express.json)
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
-
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
     } catch (err) {
-        console.error("Webhook Error:", err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
-        
         if (session.metadata.tipo_acquisto === 'pacchetto_app') {
-            let creditiDaAggiungere = 0;
-            const nomePacchetto = session.metadata.pacchetto;
-            
-            if (nomePacchetto === 'Discovery') creditiDaAggiungere = 5;
-            else if (nomePacchetto === 'Stagionale') creditiDaAggiungere = 12;
-            else if (nomePacchetto === 'PRO') creditiDaAggiungere = 25;
-
-            const user = await User.findByIdAndUpdate(
-                session.metadata.userId, 
-                { $inc: { credits: creditiDaAggiungere } },
-                { new: true }
-            );
-
-            if (user && session.customer_details?.email) {
-                const msg = {
-                    to: session.customer_details.email,
-                    from: 'luxusaureastudio@gmail.com',
-                    subject: 'Conferma acquisto crediti - Luxus Aurea',
-                    text: `Grazie per il tuo acquisto! Ti sono stati accreditati ${creditiDaAggiungere} crediti.`,
-                    html: `<p>Grazie per il tuo acquisto su <strong>Luxus Aurea</strong>!</p>
-                           <p>Ti sono stati accreditati <strong>${creditiDaAggiungere} crediti</strong> sul tuo account.</p>`
-                };
-                await sgMail.send(msg).catch(console.error);
-            }
+            const pacchetti = { 'Discovery': 5, 'Stagionale': 12, 'PRO': 25 };
+            const crediti = pacchetti[session.metadata.pacchetto] || 0;
+            await User.findByIdAndUpdate(session.metadata.userId, { $inc: { credits: crediti } });
         }
     }
     res.json({ received: true });
 });
-// 1. CONFIGURAZIONI (Tutto in un unico blocco ordinato)
-app.use(cors({ 
-    origin: '*', 
-    methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], 
-    allowedHeaders: ['Content-Type', 'Authorization'] 
-}));
 
-// 2. MIDDLEWARE (Dichiarati una sola volta)
+// 3. ORA puoi attivare express.json
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// FORZIAMO LA CHIAVE NUOVA DIRETTAMENTE NEL CODICE
-const MIA_CHIAVE = process.env.GEMINI_KEY;
-
-const genAI = new GoogleGenerativeAI(MIA_CHIAVE);
+// 4. Inizializzazioni rimanenti
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-const fileManager = new GoogleAIFileManager(MIA_CHIAVE);
-
-// Configurazione Upload
+const fileManager = new GoogleAIFileManager(process.env.GEMINI_KEY);
 const upload = multer({ storage: multer.memoryStorage() });
 
-if (process.env.SENDGRID_API_KEY) {
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-}
+if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Connessione Database (Già gestita nel primo blocco, ma assicurati che sia unica)
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log("✅ Connesso a MongoDB"))
-    .catch(err => { console.error("❌ ERRORE CRITICO DB:", err); process.exit(1); });
+    .catch(err => { console.error("❌ ERRORE CRITICO DB:", err); });
+
+// ... (qui prosegui con le tue altre rotte API)
 // ==========================================
 // MODELLI DATABASE
 // ==========================================
+const User = mongoose.model('User', new mongoose.Schema({
+    companyName: String,
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    credits: { type: Number, default: 1 },
+    resetPasswordToken: String,    // Aggiungi questo
+    resetPasswordExpires: Date     // Aggiungi questo
+}));
 
 const Report = mongoose.model('Report', new mongoose.Schema({
     userId: mongoose.Schema.Types.ObjectId,
@@ -162,10 +130,7 @@ app.post('/api/register', async (req, res) => {
 // ROTTA CORRETTA PER RICHIESTA RESET
 app.post('/api/request-reset', async (req, res) => {
     const { email } = req.body;
-    
-    // CORREZIONE: Recuperiamo l'utente dal database PRIMA di fare il controllo
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: "Utente non trovato." });
+        if (!user) return res.status(404).json({ error: "Utente non trovato." });
 
     const token = crypto.randomBytes(20).toString('hex');
     user.resetPasswordToken = token;
@@ -174,8 +139,10 @@ app.post('/api/request-reset', async (req, res) => {
 
     const resetLink = `https://safetydata-backend.onrender.com/reset.html?token=${token}`;
     
+    // Log per debug
     console.log("LINK DI RESET GENERATO:", resetLink);
     
+    // Invio Email con SendGrid
     const msg = {
         to: email,
         from: 'luxusaureastudio@gmail.com', 
@@ -189,6 +156,7 @@ app.post('/api/request-reset', async (req, res) => {
         res.json({ success: true, message: "Email inviata con successo." });
     } catch (e) {
         console.error("Errore SendGrid:", e);
+        // Se SendGrid fallisce, restituiamo comunque il link nei log per non bloccare l'utente
         res.status(500).json({ error: "Errore invio email, contatta l'assistenza." });
     }
 });
