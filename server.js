@@ -1,12 +1,29 @@
 require('dotenv').config();
 const express = require('express');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // Assicurati di averla definita
+const cors = require('cors');
+const multer = require('multer');
+const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
+const path = require('path');
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const sgMail = require('@sendgrid/mail');
-const User = require('./models/User'); // Assicurati che il percorso sia corretto
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleAIFileManager } = require("@google/generative-ai/server");
+
+// Importa il modello User (assicurati che il percorso sia esatto)
+const User = require('./models/User'); 
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 const app = express();
 
+// Middleware base
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+
+// ROTTA WEBHOOK (Deve stare prima di app.use(express.json()))
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
@@ -29,54 +46,35 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
             else if (nomePacchetto === 'Stagionale') creditiDaAggiungere = 12;
             else if (nomePacchetto === 'PRO') creditiDaAggiungere = 25;
 
-            // 1. Aggiorna i crediti nel database
             const user = await User.findByIdAndUpdate(
                 session.metadata.userId, 
                 { $inc: { credits: creditiDaAggiungere } },
                 { new: true }
             );
 
-            // 2. Invia Email con SendGrid
-            if (user) {
+            if (user && session.customer_details?.email) {
                 const msg = {
                     to: session.customer_details.email,
                     from: 'luxusaureastudio@gmail.com',
                     subject: 'Conferma acquisto crediti - Luxus Aurea',
-                    text: `Ciao ${session.customer_details.name || 'Cliente'}, grazie per il tuo acquisto! Ti sono stati accreditati ${creditiDaAggiungere} crediti.`,
-                    html: `<p>Ciao ${session.customer_details.name || 'Cliente'},</p>
-                           <p>Grazie per il tuo acquisto su <strong>Luxus Aurea</strong>!</p>
+                    text: `Grazie per il tuo acquisto! Ti sono stati accreditati ${creditiDaAggiungere} crediti.`,
+                    html: `<p>Grazie per il tuo acquisto su <strong>Luxus Aurea</strong>!</p>
                            <p>Ti sono stati accreditati <strong>${creditiDaAggiungere} crediti</strong> sul tuo account.</p>`
                 };
-
-                try {
-                    await sgMail.send(msg);
-                    console.log(`✅ Email inviata a: ${session.customer_details.email}`);
-                } catch (err) {
-                    console.error("❌ Errore invio email SendGrid:", err.response ? err.response.body : err.message);
-                }
+                await sgMail.send(msg).catch(console.error);
             }
-            console.log(`✅ Aggiunti ${creditiDaAggiungere} crediti all'utente:`, session.metadata.userId);
         }
     }
-    
     res.json({ received: true });
 });
-const cors = require('cors');
-const multer = require('multer');
-const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
-const path = require('path');
-const bcrypt = require('bcrypt');
-const crypto = require('crypto');
-const fs = require('fs');
-const os = require('os');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GoogleAIFileManager } = require("@google/generative-ai/server");
+// 1. CONFIGURAZIONI (Tutto in un unico blocco ordinato)
+app.use(cors({ 
+    origin: '*', 
+    methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], 
+    allowedHeaders: ['Content-Type', 'Authorization'] 
+}));
 
-
-
-// 2. CONFIGURAZIONI (SOLO UNA VOLTA!)
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+// 2. MIDDLEWARE (Dichiarati una sola volta)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -172,8 +170,7 @@ app.post('/api/register', async (req, res) => {
 // ROTTA CORRETTA PER RICHIESTA RESET
 app.post('/api/request-reset', async (req, res) => {
     const { email } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: "Utente non trovato." });
+        if (!user) return res.status(404).json({ error: "Utente non trovato." });
 
     const token = crypto.randomBytes(20).toString('hex');
     user.resetPasswordToken = token;
