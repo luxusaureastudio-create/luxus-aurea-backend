@@ -170,7 +170,10 @@ app.post('/api/register', async (req, res) => {
 // ROTTA CORRETTA PER RICHIESTA RESET
 app.post('/api/request-reset', async (req, res) => {
     const { email } = req.body;
-        if (!user) return res.status(404).json({ error: "Utente non trovato." });
+    
+    // CORREZIONE: Recuperiamo l'utente dal database PRIMA di fare il controllo
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: "Utente non trovato." });
 
     const token = crypto.randomBytes(20).toString('hex');
     user.resetPasswordToken = token;
@@ -179,10 +182,8 @@ app.post('/api/request-reset', async (req, res) => {
 
     const resetLink = `https://safetydata-backend.onrender.com/reset.html?token=${token}`;
     
-    // Log per debug
     console.log("LINK DI RESET GENERATO:", resetLink);
     
-    // Invio Email con SendGrid
     const msg = {
         to: email,
         from: 'luxusaureastudio@gmail.com', 
@@ -196,7 +197,6 @@ app.post('/api/request-reset', async (req, res) => {
         res.json({ success: true, message: "Email inviata con successo." });
     } catch (e) {
         console.error("Errore SendGrid:", e);
-        // Se SendGrid fallisce, restituiamo comunque il link nei log per non bloccare l'utente
         res.status(500).json({ error: "Errore invio email, contatta l'assistenza." });
     }
 });
