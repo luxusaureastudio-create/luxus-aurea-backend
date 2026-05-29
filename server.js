@@ -1,45 +1,47 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const multer = require('multer');
 const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
-const path = require('path');
-const bcrypt = require('bcrypt');
-const crypto = require('crypto');
-const fs = require('fs');
-const os = require('os');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const sgMail = require('@sendgrid/mail');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GoogleAIFileManager } = require("@google/generative-ai/server");
 const app = express();
 
-// 1. CORS va per primo
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+// 1. CORS
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 
-// 2. WEBHOOK (DEVE STARE QUI, PRIMA DI express.json)
+// 2. WEBHOOK: DEVE ricevere il corpo come buffer grezzo (raw)
+// Assicurati che la rotta sia esattamente questa
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
+
     try {
+        // La firma viene verificata qui sul corpo grezzo (req.body)
         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
     } catch (err) {
+        console.error(`Webhook Signature Error: ${err.message}`);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
+    // Gestione dell'evento
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
-        if (session.metadata.tipo_acquisto === 'pacchetto_app') {
+        
+        if (session.metadata && session.metadata.tipo_acquisto === 'pacchetto_app') {
             const pacchetti = { 'Discovery': 5, 'Stagionale': 12, 'PRO': 25 };
             const crediti = pacchetti[session.metadata.pacchetto] || 0;
-            await User.findByIdAndUpdate(session.metadata.userId, { $inc: { credits: crediti } });
+            
+            // Aggiornamento nel database
+            await User.findByIdAndUpdate(session.metadata.userId, { 
+                $inc: { credits: crediti } 
+            });
+            console.log(`Crediti aggiornati per l'utente: ${session.metadata.userId}`);
         }
     }
+
     res.json({ received: true });
 });
 
-// 3. ORA puoi attivare express.json
+// 3. TUTTI GLI ALTRI MIDDLEWARE VANNO DOPO
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
