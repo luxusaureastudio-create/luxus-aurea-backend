@@ -18,23 +18,44 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
             let creditiDaAggiungere = 0;
             const nomePacchetto = session.metadata.pacchetto;
             
-            if (nomePacchetto === 'Discovery') {
-                creditiDaAggiungere = 5;
-            } else if (nomePacchetto === 'Stagionale') {
-                creditiDaAggiungere = 12;
-            } else if (nomePacchetto === 'PRO') {
-                creditiDaAggiungere = 25;
-            }
+            if (nomePacchetto === 'Discovery') creditiDaAggiungere = 5;
+            else if (nomePacchetto === 'Stagionale') creditiDaAggiungere = 12;
+            else if (nomePacchetto === 'PRO') creditiDaAggiungere = 25;
 
-            const User = mongoose.model('User');
-            await User.findByIdAndUpdate(session.metadata.userId, { $inc: { credits: creditiDaAggiungere } });
+            // 1. Aggiorna i crediti nel database
+            const user = await User.findByIdAndUpdate(
+                session.metadata.userId, 
+                { $inc: { credits: creditiDaAggiungere } },
+                { new: true } // Restituisce l'utente aggiornato
+            );
+
+            // 2. Invia Email con SendGrid
+            if (user) {
+                const msg = {
+                    to: session.customer_details.email, // Email del cliente
+                    from: 'luxusaureastudio@gmail.com', // <--- METTI QUI LA TUA EMAIL VERIFICATA SU SENDGRID
+                    subject: 'Conferma acquisto crediti - Luxus Aurea',
+                    text: `Ciao ${session.customer_details.name || 'Cliente'}, grazie per il tuo acquisto! Ti sono stati accreditati ${creditiDaAggiungere} crediti.`,
+                    html: `<p>Ciao ${session.customer_details.name || 'Cliente'},</p>
+                           <p>Grazie per il tuo acquisto su <strong>Luxus Aurea</strong>!</p>
+                           <p>Ti sono stati accreditati <strong>${creditiDaAggiungere} crediti</strong> sul tuo account.</p>
+                           <p>Puoi iniziare subito ad analizzare le tue schede di sicurezza.</p>`
+                };
+
+                try {
+                    await sgMail.send(msg);
+                    console.log(`✅ Email inviata a: ${session.customer_details.email}`);
+                } catch (err) {
+                    console.error("❌ Errore invio email SendGrid:", err.response ? err.response.body : err.message);
+                }
+            }
             console.log(`✅ Aggiunti ${creditiDaAggiungere} crediti all'utente:`, session.metadata.userId);
         }
     }
     
-    // La risposta va messa qui, fuori dall'if dell'evento, ma dentro la funzione
     res.json({ received: true });
 });
+
 const cors = require('cors');
 const multer = require('multer');
 const mongoose = require('mongoose');
