@@ -37,10 +37,11 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
 
-    // VALIDAZIONE: Controlla che metadata e userId esistano
-    if (session.metadata && session.metadata.tipo_acquisto === 'pacchetto_app' && session.metadata.userId) {
-        const pacchetti = { 'Discovery': 5, 'Stagionale': 12, 'PRO': 25 };
-        const crediti = pacchetti[session.metadata.pacchetto] || 0;
+   // VALIDAZIONE: Controlla che metadata e userId esistano
+if (session.metadata && session.metadata.tipo_acquisto === 'pacchetto_app' && session.metadata.userId) {
+    const pacchetti = { 'DISCOVERY': 5, 'STAGIONALE': 12, 'PRO': 25 };
+    // Aggiungiamo .toUpperCase() per assicurarci che corrisponda sempre
+    const crediti = pacchetti[session.metadata.pacchetto.toUpperCase()] || 0;
 
         try {
             // Aggiornamento atomico dei crediti
