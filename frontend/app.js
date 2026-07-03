@@ -148,7 +148,7 @@ async function runAnalysis() {
                 if(h === 'H410') sumH410 += concProdotto;
                 if(h === 'H411') sumH411 += concProdotto;
                 if(h === 'H412') sumH412 += concProdotto;
-                if(h === 'H317' && concProdotto >= 0.1) {
+                if(h === 'H317' && concProdotto > 0.1) {
                     hasSensitizer = true;
                     if (!allergeniEtichetta.includes(s.nome)) allergeniEtichetta.push(s.nome);
                 }
