@@ -148,10 +148,16 @@ async function runAnalysis() {
                 if(h === 'H410') sumH410 += concProdotto;
                 if(h === 'H411') sumH411 += concProdotto;
                 if(h === 'H412') sumH412 += concProdotto;
-                if(h === 'H317' && concProdotto > 0.1) {
-                    hasSensitizer = true;
-                    if (!allergeniEtichetta.includes(s.nome)) allergeniEtichetta.push(s.nome);
-                }
+                if(h === 'H317') {
+    // 1. Scaglione EUH208: Solo frase testo (Niente UFI, niente Pittogramma)
+    if (concProdotto > 0.1) {
+        if (!allergeniEtichetta.includes(s.nome)) allergeniEtichetta.push(s.nome);
+    }
+    // 2. Scaglione H317: Classificazione Miscela (UFI e Pittogramma scattano)
+    if (concProdotto >= 1.0) {
+        hasSensitizer = true;
+    }
+}
                 if(h === 'H360' && concProdotto >= 0.3) hasRepro = true;
                 if(h === 'EUH380' || h === 'EUH440') containsEndocrine = true;
             });
@@ -249,12 +255,14 @@ async function salvaInArchivio() {
     const nomeFinale = (inputNome && inputNome.value.trim() !== "") ? inputNome.value.toUpperCase() : "SENZA NOME";
     
     const target = parseFloat(document.getElementById('targetPerc').value) || 10;
+    const prezzoKg = parseFloat(document.getElementById('priceKg').value) || 0; // <-- AGGIUNGI QUESTA RIGA!
     let esitoFinale = document.getElementById('results').innerText.includes("NON CONFORME") ? "NON CONFORME" : "CONFORME";
 
     const reportData = {
         nomeFragranza: nomeFinale,
         esito: esitoFinale,
         target: target,
+        prezzo: prezzoKg, // AGGIUNGI QUESTA RIGA PER SPEDIRLO!
         analisiCompleta: globalAnalysisData
     };
 
@@ -287,11 +295,11 @@ async function caricaArchivioDalServer() {
     if (!token || !historyList) return;
     try {
         const res = await fetch(`${BASE_URL}/api/my-archive`, { headers: { 'Authorization': `Bearer ${token}` } });
-        if (res.ok) {
+      if (res.ok) {
             const reports = await res.json();
             historyList.innerHTML = reports.length === 0 ? '<p>Nessun report in archivio.</p>' : reports.map(r => `
-                <div style="padding:10px; border-bottom:1px solid #eee; cursor:pointer;" onclick='ripristinaDaArchivio(${JSON.stringify(r.analisiCompleta)})'>
-                    <strong>${r.nomeFragranza}</strong><br><small>${r.esito} (${r.target}%)</small>
+                <div style="padding:10px; border-bottom:1px solid #eee; cursor:pointer;" onclick='ripristinaDaArchivio(${JSON.stringify(r.analisiCompleta)}, ${r.target}, ${r.prezzo || 0})'>
+                    <strong>${r.nomeFragranza}</strong><br><small>${r.esito} (${r.target}%) ${r.prezzo ? `- Costo: € ${r.prezzo}` : ''}</small>
                 </div>`).join('');
         }
     } catch (err) { console.error("Errore caricamento archivio", err); }
@@ -311,8 +319,13 @@ async function svuotaArchivio() {
     } catch (err) { console.error(err); }
 }
 
-function ripristinaDaArchivio(dati) { 
+function ripristinaDaArchivio(dati, targetSalvato, prezzoSalvato) { 
     globalAnalysisData = dati; 
+    
+    // Rimette i valori salvati dentro le caselle di testo prima di calcolare
+    document.getElementById('targetPerc').value = targetSalvato;
+    document.getElementById('priceKg').value = prezzoSalvato;
+    
     runAnalysis(); 
 }
 
