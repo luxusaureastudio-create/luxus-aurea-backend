@@ -153,13 +153,13 @@ const User = mongoose.model('User', new mongoose.Schema({
     resetPasswordExpires: Date     // Aggiungi questo
 }));
 
-const Report = mongoose.model('Report', new mongoose.Schema({
-    userId: mongoose.Schema.Types.ObjectId,
+const reportSchema = new mongoose.Schema({
     nomeFragranza: String,
     esito: String,
     target: Number,
+    prezzo: Number, // <-- ASSICURATI CHE CI SIA QUESTA RIGA
     analisiCompleta: Object
-}));
+});
 
 const Substance = mongoose.model('Substance', new mongoose.Schema({
     cas: { type: String, required: true },
