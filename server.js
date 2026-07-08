@@ -153,13 +153,14 @@ const User = mongoose.model('User', new mongoose.Schema({
     resetPasswordExpires: Date     // Aggiungi questo
 }));
 
-const reportSchema = new mongoose.Schema({
+const Report = mongoose.model('Report', new mongoose.Schema({
+    userId: String,
     nomeFragranza: String,
     esito: String,
     target: Number,
-    prezzo: Number, // <-- ASSICURATI CHE CI SIA QUESTA RIGA
+    prezzo: Number,
     analisiCompleta: Object
-});
+}));
 
 const Substance = mongoose.model('Substance', new mongoose.Schema({
     cas: { type: String, required: true },
@@ -342,7 +343,7 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
 // ==========================================
 app.post('/api/save-report', verifyToken, async (req, res) => {
     try {
-        const { nomeFragranza, esito, target, analisiCompleta } = req.body;
+        const { nomeFragranza, esito, target, prezzo, analisiCompleta } = req.body;
         if (!analisiCompleta) return res.status(400).json({ error: "Dati di analisi mancanti." });
 
         const newReport = new Report({
@@ -350,6 +351,7 @@ app.post('/api/save-report', verifyToken, async (req, res) => {
             nomeFragranza: nomeFragranza || "SENZA NOME",
             esito: esito || "SCONOSCIUTO",
             target: target || 0,
+            prezzo,
             analisiCompleta: analisiCompleta
         });
 
