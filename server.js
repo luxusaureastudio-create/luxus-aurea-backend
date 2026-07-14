@@ -39,7 +39,7 @@ if (event.type === 'checkout.session.completed') {
 
    // VALIDAZIONE: Controlla che metadata e userId esistano
 if (session.metadata && session.metadata.tipo_acquisto === 'pacchetto_app' && session.metadata.userId) {
-    const pacchetti = { 'DISCOVERY': 5, 'STAGIONALE': 12, 'PRO': 25 };
+    const pacchetti = { '5 ANALISI': 5, '12 ANALISI': 12, '25 ANALISI': 25 };
     // Aggiungiamo .toUpperCase() per assicurarci che corrisponda sempre
     const crediti = pacchetti[session.metadata.pacchetto.toUpperCase()] || 0;
 
@@ -84,12 +84,12 @@ app.post('/create-checkout-session', async (req, res) => {
 
     // Definiamo i prezzi in centesimi (ESEMPIO: 7.90€ -> 790, 14.90€ -> 1490, 24.90€ -> 2490)
     const prezzi = { 
-        'Discovery': 790, 
-        'Stagionale': 1490, 
-        'PRO': 2490 
+        '5 ANALISI': 790, 
+        '12 ANALISI': 1490, 
+        '25 ANALISI': 2490 
     };
 
-    const crediti = { 'Discovery': 5, 'Stagionale': 12, 'PRO': 25 };
+    const crediti = { '5 ANALISI': 5, '12 ANALISI': 12, '25 ANALISI': 25 };
 
     if (!prezzi[pacchetto]) {
         return res.status(400).json({ error: 'Pacchetto non valido' });
