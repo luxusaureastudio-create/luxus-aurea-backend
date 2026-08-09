@@ -5,12 +5,6 @@ const multer = require('multer');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const path = require('path');
-
-// Rotta diretta per robots.txt
-app.get('/robots.txt', (req, res) => {
-    res.type('text/plain');
-    res.send("User-agent: *\nAllow: /");
-});
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -23,6 +17,13 @@ const app = express();
 
 // 1. CORS va per primo
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+
+
+// Rotta diretta per robots.txt
+app.get('/robots.txt', (req, res) => {
+    res.type('text/plain');
+    res.send("User-agent: *\nAllow: /");
+});
 
 // ... (tutti i tuoi require precedenti restano invariati)
 
