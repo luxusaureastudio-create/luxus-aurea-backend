@@ -25,6 +25,18 @@ app.get('/robots.txt', (req, res) => {
     res.send("User-agent: *\nAllow: /");
 });
 
+app.get('/sitemap.xml', (req, res) => {
+    res.type('application/xml');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://safetydata-backend.onrender.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>`);
+});
+
 // ... (tutti i tuoi require precedenti restano invariati)
 
 // 2. WEBHOOK - GESTIONE CORRETTA DEL CORPO RAW
