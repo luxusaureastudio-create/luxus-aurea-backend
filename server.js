@@ -5,6 +5,12 @@ const multer = require('multer');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+
+// Rotta diretta per robots.txt
+app.get('/robots.txt', (req, res) => {
+    res.type('text/plain');
+    res.send("User-agent: *\nAllow: /");
+});
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const fs = require('fs');
