@@ -61,12 +61,14 @@
 <body>
 
     <div id="disclaimerModal">
-        <div class="modal-content">
-            <h2>Avviso di Sicurezza</h2>
-            <p>I dati generati sono basati su estrazione automatica tramite IA. L'utente è responsabile della verifica finale IFRA e CLP.</p>
-            <button onclick="acceptDisclaimer()">ACCETTO E PROCEDO</button>
-        </div>
+    <div class="modal-content">
+        <h2>Avviso di Sicurezza</h2>
+        <p>I componenti chimici vengono estratti automaticamente tramite intelligenza artificiale a partire dal PDF caricato: l'estrazione può contenere errori o omissioni.</p>
+        <p>Il controllo dei limiti IFRA copre solo un numero limitato di sostanze presenti nel database attuale: l'assenza di un avviso non garantisce la conformità per sostanze non incluse.</p>
+        <p><strong>L'utente è l'unico responsabile della verifica finale di conformità IFRA e CLP prima di stampare o pubblicare qualunque etichetta.</strong></p>
+        <button onclick="acceptDisclaimer()">ACCETTO E PROCEDO</button>
     </div>
+</div>
 
     <script>
         function acceptDisclaimer() {
