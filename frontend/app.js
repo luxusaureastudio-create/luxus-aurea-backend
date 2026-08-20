@@ -124,73 +124,48 @@ async function runAnalysis() {
     const prezzoFragranza = parseFloat(document.getElementById('priceKg').value) || 0;
     const costoFinale = (prezzoFragranza * targetUso) / 100;
 
-    let isSafe = true;
-    let allergeniEtichetta = [];
+    const token = localStorage.getItem('luxusToken');
+    const ifraCategoria = document.getElementById('ifraCategory').value;
+
     let labelsGrafico = [];
     let datiGrafico = [];
-
-    let sumH318 = 0, sumH315 = 0, sumH319 = 0, sumH400 = 0, sumH410 = 0, sumH411 = 0, sumH412 = 0;
-    let hasSensitizer = false, hasRepro = false, containsEndocrine = false;
-    let forzaH412Precauzione = false;
-
     sostanze.forEach(s => {
         const concProdotto = (s.concentrazione * targetUso) / 100;
-        const nomeUpper = String(s.nome).toUpperCase();
         labelsGrafico.push(s.nome);
         datiGrafico.push(concProdotto);
-
-        // Controllo automatico preventivo per essenze agrumate pesanti
-        if ((nomeUpper.includes("MENTA") || nomeUpper.includes("DIENE") || nomeUpper.includes("LIMONENE") || s.cas === "5989-27-5") && concProdotto >= 1.5) {
-            forzaH412Precauzione = true;
-        }
-
-        if (limitiIFRA[s.cas]) {
-            const categoria = document.getElementById('ifraCategory').value;
-            if (concProdotto > limitiIFRA[s.cas][categoria]) isSafe = false;
-        }
-
-        if (s.clp) {
-            const codiciH = String(s.clp).toUpperCase().match(/H\d{3}[A-Z]?|EUH\d{3}/g) || [];
-            codiciH.forEach(h => {
-                if(h === 'H318') sumH318 += concProdotto;
-                if(h === 'H315') sumH315 += concProdotto;
-                if(h === 'H319') sumH319 += concProdotto;
-                if(h === 'H400') sumH400 += concProdotto;
-                if(h === 'H410') sumH410 += concProdotto;
-                if(h === 'H411') sumH411 += concProdotto;
-                if(h === 'H412') sumH412 += concProdotto;
-                if(h === 'H317') {
-    // 1. Scaglione EUH208: Solo frase testo (Niente UFI, niente Pittogramma)
-    if (concProdotto > 0.1) {
-        if (!allergeniEtichetta.includes(s.nome)) allergeniEtichetta.push(s.nome);
-    }
-    // 2. Scaglione H317: Classificazione Miscela (UFI e Pittogramma scattano)
-    if (concProdotto >= 1.0) {
-        hasSensitizer = true;
-    }
-}
-                if(h === 'H360' && concProdotto >= 0.3) hasRepro = true;
-                if(h === 'EUH380' || h === 'EUH440') containsEndocrine = true;
-            });
-        }
     });
 
-    let codiciMiscela = new Set();
-    if (sumH318 >= 3.0) codiciMiscela.add('H318');
-    else if (sumH318 >= 1.0 || sumH319 >= 10.0 || (sumH318 + sumH319) >= 10.0) codiciMiscela.add('H319');
-    if (sumH315 >= 10.0) codiciMiscela.add('H315');
-    if (hasSensitizer) codiciMiscela.add('H317');
-    if (hasRepro) codiciMiscela.add('H360');
-    
-    // Metodo additivo CLP per l'ambiente
-    if (sumH410 >= 25.0) codiciMiscela.add('H410');
-    else if ((sumH411 + 10*sumH410) >= 25.0) codiciMiscela.add('H411');
-    else if ((sumH412 + 10*sumH411 + 100*sumH410) >= 25.0 || forzaH412Precauzione) {
-        codiciMiscela.add('H412');
+    let isSafe = true;
+    let allergeniEtichetta = [];
+    let listaH_finali = [];
+    let scattaUFI = false;
+    let hasRepro = false;
+    let containsEndocrine = false;
+
+    try {
+        const compRes = await fetch(`${BASE_URL}/api/calculate-compliance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ sostanze, targetUso, ifraCategoria })
+        });
+        if (compRes.ok) {
+            const comp = await compRes.json();
+            isSafe = comp.isSafe;
+            allergeniEtichetta = comp.allergeniEtichetta || [];
+            listaH_finali = comp.listaH_finali || [];
+            scattaUFI = comp.scattaUFI;
+            hasRepro = comp.hasRepro;
+            containsEndocrine = comp.containsEndocrine;
+        } else {
+            alert("Errore nel calcolo della conformità. Riprova.");
+            return;
+        }
+    } catch (e) {
+        console.error("Errore chiamata calcolo conformità", e);
+        alert("Errore di connessione durante il calcolo di conformità.");
+        return;
     }
 
-    const listaH_finali = Array.from(codiciMiscela).sort();
-    let scattaUFI = listaH_finali.some(h => h.startsWith('H3') || h.startsWith('H2'));
     let pittogrammiHTML = generaIconeGHS(listaH_finali);
 
     let frasiEtichetta = [];
