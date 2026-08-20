@@ -5,6 +5,17 @@ const BASE_URL = (window.location.hostname === 'localhost' || window.location.ho
 
 let globalAnalysisData = null;
 
+// Funzione di sicurezza: converte caratteri speciali HTML in testo semplice
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // --- AGGIORNAMENTO CREDITI ---
 async function aggiornaCrediti() {
     const token = localStorage.getItem('luxusToken');
@@ -78,9 +89,9 @@ async function uploadPDF() {
             if(preflight && listDiv) {
                 preflight.style.display = 'block';
                 listDiv.innerHTML = sostanzeTrovate.map(s => `
-                    <div style="padding:10px; border-bottom:1px solid #eee;">
-                        <strong>${(s.nome || "Sconosciuto").toUpperCase()}</strong> (CAS: ${s.cas || "N/D"}) - <span style="color:#b59a5b;">${s.concentrazione || 0}%</span>
-                    </div>`).join('');
+    <div style="padding:10px; border-bottom:1px solid #eee;">
+        <strong>${escapeHTML((s.nome || "Sconosciuto").toUpperCase())}</strong> (CAS: ${escapeHTML(s.cas || "N/D")}) - <span style="color:#b59a5b;">${s.concentrazione || 0}%</span>
+    </div>`).join('');
             }
             
             document.getElementById('analyzeBtn').disabled = false;
@@ -183,7 +194,7 @@ async function runAnalysis() {
     let pittogrammiHTML = generaIconeGHS(listaH_finali);
 
     let frasiEtichetta = [];
-    if (allergeniEtichetta.length > 0) frasiEtichetta.push(`<strong>CONTIENE:</strong> ${allergeniEtichetta.join(', ')}.<br><span style="font-size:10px; font-style:italic;">Può provocare una reazione allergica.</span>`);
+    if (allergeniEtichetta.length > 0) frasiEtichetta.push(`<strong>CONTIENE:</strong> ${allergeniEtichetta.map(escapeHTML).join(', ')}.<br><span style="font-size:10px; font-style:italic;">Può provocare una reazione allergica.</span>`);
     if (listaH_finali.includes('H360')) frasiEtichetta.push(`<strong style="color:#b91c1c;">⚠️ H360:</strong> Può nuocere alla fertilità o al feto.`);
     if (containsEndocrine) frasiEtichetta.push(`<strong style="color:#b91c1c;">⚠️ CONTIENE INTERFERENTI ENDOCRINI (Reg. 2023/707)</strong>`);
 
@@ -239,7 +250,7 @@ resultsDiv.innerHTML = `
     `;
 
     const legDiv = document.getElementById('legendaColori');
-    legDiv.innerHTML = labelsGrafico.slice(0,8).map((l, i) => `<div><span style="color:${colori[i % 6]}">■</span> ${l} (${datiGrafico[i].toFixed(2)}%)</div>`).join('');
+    legDiv.innerHTML = labelsGrafico.slice(0,8).map((l, i) => `<div><span style="color:${colori[i % 6]}">■</span> ${escapeHTML(l)} (${datiGrafico[i].toFixed(2)}%)</div>`).join('');
     
     if (window.myPieChart) window.myPieChart.destroy();
     const ctx = document.getElementById('chartPie').getContext('2d');
