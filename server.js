@@ -373,6 +373,95 @@ app.get('/api/ifra-database', (req, res) => {
     };
     res.json(mockIfraDB);
 });
+// ==========================================
+// ROTTA API - CALCOLO CONFORMITÀ (LATO SERVER)
+// ==========================================
+app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
+    try {
+        const { sostanze, targetUso, ifraCategoria } = req.body;
+
+        if (!Array.isArray(sostanze)) {
+            return res.status(400).json({ error: "Dati sostanze mancanti o non validi." });
+        }
+
+        const target = parseFloat(targetUso) || 10;
+        const categoria = ifraCategoria || 'cat12';
+
+        const mockIfraDB = {
+            "5989-27-5": { "cat12": 100 },
+            "120-51-4": { "cat12": 100 }
+        };
+
+        let isSafe = true;
+        let allergeniEtichetta = [];
+        let sumH318 = 0, sumH315 = 0, sumH319 = 0, sumH400 = 0, sumH410 = 0, sumH411 = 0, sumH412 = 0;
+        let hasSensitizer = false, hasRepro = false, containsEndocrine = false;
+        let forzaH412Precauzione = false;
+
+        sostanze.forEach(s => {
+            const concProdotto = (parseFloat(s.concentrazione) || 0) * target / 100;
+            const nomeUpper = String(s.nome || '').toUpperCase();
+
+            if ((nomeUpper.includes("MENTA") || nomeUpper.includes("DIENE") || nomeUpper.includes("LIMONENE") || s.cas === "5989-27-5") && concProdotto >= 1.5) {
+                forzaH412Precauzione = true;
+            }
+
+            if (mockIfraDB[s.cas]) {
+                if (concProdotto > mockIfraDB[s.cas][categoria]) isSafe = false;
+            }
+
+            if (s.clp) {
+                const codiciH = String(s.clp).toUpperCase().match(/H\d{3}[A-Z]?|EUH\d{3}/g) || [];
+                codiciH.forEach(h => {
+                    if (h === 'H318') sumH318 += concProdotto;
+                    if (h === 'H315') sumH315 += concProdotto;
+                    if (h === 'H319') sumH319 += concProdotto;
+                    if (h === 'H400') sumH400 += concProdotto;
+                    if (h === 'H410') sumH410 += concProdotto;
+                    if (h === 'H411') sumH411 += concProdotto;
+                    if (h === 'H412') sumH412 += concProdotto;
+                    if (h === 'H317') {
+                        if (concProdotto > 0.1) {
+                            if (!allergeniEtichetta.includes(s.nome)) allergeniEtichetta.push(s.nome);
+                        }
+                        if (concProdotto >= 1.0) hasSensitizer = true;
+                    }
+                    if (h === 'H360' && concProdotto >= 0.3) hasRepro = true;
+                    if (h === 'EUH380' || h === 'EUH440') containsEndocrine = true;
+                });
+            }
+        });
+
+        let codiciMiscela = new Set();
+        if (sumH318 >= 3.0) codiciMiscela.add('H318');
+        else if (sumH318 >= 1.0 || sumH319 >= 10.0 || (sumH318 + sumH319) >= 10.0) codiciMiscela.add('H319');
+        if (sumH315 >= 10.0) codiciMiscela.add('H315');
+        if (hasSensitizer) codiciMiscela.add('H317');
+        if (hasRepro) codiciMiscela.add('H360');
+
+        if (sumH410 >= 25.0) codiciMiscela.add('H410');
+        else if ((sumH411 + 10 * sumH410) >= 25.0) codiciMiscela.add('H411');
+        else if ((sumH412 + 10 * sumH411 + 100 * sumH410) >= 25.0 || forzaH412Precauzione) {
+            codiciMiscela.add('H412');
+        }
+
+        const listaH_finali = Array.from(codiciMiscela).sort();
+        const scattaUFI = listaH_finali.some(h => h.startsWith('H3') || h.startsWith('H2'));
+
+        res.json({
+            isSafe,
+            listaH_finali,
+            scattaUFI,
+            allergeniEtichetta,
+            hasRepro,
+            containsEndocrine
+        });
+
+    } catch (error) {
+        console.error("Errore calcolo conformità:", error);
+        res.status(500).json({ error: "Errore durante il calcolo di conformità." });
+    }
+});
 
 app.get('/api/substances', verifyToken, async (req, res) => {
     try {
