@@ -168,8 +168,9 @@ const User = mongoose.model('User', new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     credits: { type: Number, default: 1 },
-    resetPasswordToken: String,    // Aggiungi questo
-    resetPasswordExpires: Date     // Aggiungi questo
+    resetPasswordToken: String,
+    resetPasswordExpires: Date,
+    role: { type: String, default: 'user' }
 }));
 
 const Report = mongoose.model('Report', new mongoose.Schema({
@@ -187,7 +188,7 @@ const Substance = mongoose.model('Substance', new mongoose.Schema({
     scl: { type: Number, required: true, default: 1.0 }
 }));
 
-// Middleware Autenticazione
+/// Middleware Autenticazione
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: "Token mancante" });
@@ -198,6 +199,14 @@ const verifyToken = async (req, res, next) => {
         if (!req.user) return res.status(401).json({ error: "Utente non trovato" });
         next();
     } catch (e) { res.status(401).json({ error: "Non autorizzato" }); }
+};
+
+// Middleware Controllo Ruolo Admin
+const verifyAdmin = (req, res, next) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: "Accesso riservato agli amministratori." });
+    }
+    next();
 };
 
 // ==========================================
@@ -407,7 +416,7 @@ app.get('/api/substances', verifyToken, async (req, res) => {
     }
 });
 
-app.post('/api/substances', verifyToken, async (req, res) => {
+app.post('/api/substances', verifyToken, verifyAdmin, async (req, res) => {
     try {
         const { cas, nome, scl } = req.body;
         const newSubstance = new Substance({ cas, nome, scl: parseFloat(scl) });
@@ -418,7 +427,7 @@ app.post('/api/substances', verifyToken, async (req, res) => {
     }
 });
 
-app.delete('/api/substances/:id', verifyToken, async (req, res) => {
+app.delete('/api/substances/:id', verifyToken, verifyAdmin, async (req, res) => {
     try {
         await Substance.findByIdAndDelete(req.params.id);
         res.json({ success: true, message: "Sostanza eliminata." });
