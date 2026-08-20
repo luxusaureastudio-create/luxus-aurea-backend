@@ -52,6 +52,14 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
+    // Controllo idempotenza: evita di processare due volte lo stesso evento
+    const already = await ProcessedEvent.findOne({ eventId: event.id });
+    if (already) {
+        console.log(`⚠️ Evento già processato, ignorato: ${event.id}`);
+        return res.json({ received: true });
+    }
+    await ProcessedEvent.create({ eventId: event.id });
+
   // Gestione dell'evento
 if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
@@ -141,6 +149,10 @@ const Substance = mongoose.model('Substance', new mongoose.Schema({
     cas: { type: String, required: true },
     nome: { type: String, required: true },
     scl: { type: Number, required: true, default: 1.0 }
+}));
+const ProcessedEvent = mongoose.model('ProcessedEvent', new mongoose.Schema({
+    eventId: { type: String, required: true, unique: true },
+    processedAt: { type: Date, default: Date.now }
 }));
 
 /// Middleware Autenticazione
