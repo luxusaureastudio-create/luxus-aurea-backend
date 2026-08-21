@@ -148,7 +148,8 @@ const Report = mongoose.model('Report', new mongoose.Schema({
 const Substance = mongoose.model('Substance', new mongoose.Schema({
     cas: { type: String, required: true },
     nome: { type: String, required: true },
-    scl: { type: Number, required: true, default: 1.0 }
+    scl: { type: Number, required: true, default: 1.0 },
+    ifraCat12: { type: Number, default: 100 }
 }));
 const ProcessedEvent = mongoose.model('ProcessedEvent', new mongoose.Schema({
     eventId: { type: String, required: true, unique: true },
