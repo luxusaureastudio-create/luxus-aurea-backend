@@ -1,3 +1,4 @@
 node_modules/
 .env
 migrate.js
+migrate-ifra.js
