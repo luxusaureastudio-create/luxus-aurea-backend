@@ -112,12 +112,6 @@ async function uploadPDF() {
 async function runAnalysis() {
     if (!globalAnalysisData) return alert("Devi prima completare l'analisi del PDF!");
 
-    let limitiIFRA = {};
-    try {
-       const res = await fetch(`${BASE_URL}/api/ifra-database`);
-       if(res.ok) limitiIFRA = await res.json();
-    } catch (e) { console.error("Errore recupero IFRA DB", e); }
-
     const resultsDiv = document.getElementById('results');
     const sostanze = globalAnalysisData.analysis || [];
     const targetUso = parseFloat(document.getElementById('targetPerc').value) || 10;
