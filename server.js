@@ -394,8 +394,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             ifraDB[s.cas] = s.ifraCat12;
         });
 
-                console.log("🔍 DEBUG ifraDB - Toluene (108-88-3):", ifraDB["108-88-3"], "| Totale chiavi in ifraDB:", Object.keys(ifraDB).length);
-
+        
         let isSafe = true;
         let allergeniEtichetta = [];
         let sumH318 = 0, sumH315 = 0, sumH319 = 0, sumH400 = 0, sumH410 = 0, sumH411 = 0, sumH412 = 0;
@@ -410,8 +409,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
                 forzaH412Precauzione = true;
             }
 
-                                   console.log(`🔍 DEBUG sostanza: cas="${s.cas}" concProdotto=${concProdotto} limiteDB=${ifraDB[s.cas]}`);
-            if (ifraDB[s.cas] !== undefined && concProdotto > ifraDB[s.cas]) {
+                                               if (ifraDB[s.cas] !== undefined && concProdotto > ifraDB[s.cas]) {
                 isSafe = false;
             }
 
