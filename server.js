@@ -367,13 +367,6 @@ app.delete('/api/svuota-archivio', verifyToken, async (req, res) => {
     }
 });
 
-app.get('/api/ifra-database', (req, res) => {
-    const mockIfraDB = {
-        "5989-27-5": { "cat12": 100 }, 
-        "120-51-4": { "cat12": 100 }   
-    };
-    res.json(mockIfraDB);
-});
 // ==========================================
 // ROTTA API - CALCOLO CONFORMITÀ (LATO SERVER)
 // ==========================================
