@@ -385,13 +385,16 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             return res.status(400).json({ error: "Dati sostanze mancanti o non validi." });
         }
 
-        const target = parseFloat(targetUso) || 10;
-        const categoria = ifraCategoria || 'cat12';
+                const target = parseFloat(targetUso) || 10;
 
-        const mockIfraDB = {
-            "5989-27-5": { "cat12": 100 },
-            "120-51-4": { "cat12": 100 }
-        };
+        // Carica i limiti IFRA reali dal database (collection Substance)
+        const tutteLeSostanzeDB = await Substance.find({});
+        const ifraDB = {};
+        tutteLeSostanzeDB.forEach(s => {
+            ifraDB[s.cas] = s.ifraCat12;
+        });
+
+                console.log("🔍 DEBUG ifraDB - Toluene (108-88-3):", ifraDB["108-88-3"], "| Totale chiavi in ifraDB:", Object.keys(ifraDB).length);
 
         let isSafe = true;
         let allergeniEtichetta = [];
@@ -407,8 +410,9 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
                 forzaH412Precauzione = true;
             }
 
-            if (mockIfraDB[s.cas]) {
-                if (concProdotto > mockIfraDB[s.cas][categoria]) isSafe = false;
+                                   console.log(`🔍 DEBUG sostanza: cas="${s.cas}" concProdotto=${concProdotto} limiteDB=${ifraDB[s.cas]}`);
+            if (ifraDB[s.cas] !== undefined && concProdotto > ifraDB[s.cas]) {
+                isSafe = false;
             }
 
             if (s.clp) {
