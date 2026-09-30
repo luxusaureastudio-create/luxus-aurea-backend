@@ -544,7 +544,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             c.codici.forEach(h => {
                 if (h === 'H317') {
                     // Nome in etichetta: sostanze >= 1/10 del limite di classificazione (0,1% per 1/1B, 0,01% per 1A)
-                    if (concProdotto >= c.limiteH317 / 10) {
+                    if (concProdotto > c.limiteH317 / 10) {
                         const nomeEtichetta = NOMI_ETICHETTA[casSostanza] || s.nome;
                         if (!allergeniEtichetta.includes(nomeEtichetta)) allergeniEtichetta.push(nomeEtichetta);
                     }
