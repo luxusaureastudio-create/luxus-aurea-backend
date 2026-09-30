@@ -135,6 +135,7 @@ async function runAnalysis() {
     let scattaUFI = false;
     let hasRepro = false;
     let containsEndocrine = false;
+    let motiviNonConformita = [];
 
     try {
         const compRes = await fetch(`${BASE_URL}/api/calculate-compliance`, {
@@ -150,6 +151,7 @@ async function runAnalysis() {
             scattaUFI = comp.scattaUFI;
             hasRepro = comp.hasRepro;
             containsEndocrine = comp.containsEndocrine;
+            motiviNonConformita = comp.motiviNonConformita || [];
         } else {
             alert("Errore nel calcolo della conformità. Riprova.");
             return;
@@ -177,6 +179,7 @@ resultsDiv.innerHTML = `
                 <span>ESITO IFRA: <b style="color:${isSafe ? 'green' : 'red'};">${isSafe ? 'CONFORME' : 'NON CONFORME'}</b></span>
                 <span>COSTO: € ${costoFinale.toFixed(2)} / kg</span>
             </div>
+            ${!isSafe && motiviNonConformita.length ? `<div style="font-size:11px; color:#b91c1c; margin:-15px 0 25px 0;"><strong>Motivo:</strong><br>${motiviNonConformita.map(escapeHTML).join('<br>')}</div>` : ''}
 
             <div style="display:flex; flex-wrap:wrap; gap:40px; align-items:flex-start;">
                 

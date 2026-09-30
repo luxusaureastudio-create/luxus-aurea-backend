@@ -300,7 +300,14 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
               "clp": "CODICI H DI PERICOLO (separati da virgola, es. H317, H411)"
             }
           ]
-        }`;
+        }
+
+        REGOLE PER IL CAMPO "concentrazione":
+        - Deve essere SEMPRE un numero espresso in PERCENTUALE (%) in peso nella miscela.
+        - Se la SDS indica un intervallo (es. ">= 5% - < 10%"), usa il valore MASSIMO dell'intervallo (es. 10).
+        - Se la SDS indica ppm, converti: 1 ppm = 0.0001 % (es. 319 ppm -> 0.0319).
+        - Se la SDS indica ppb, converti: 1 ppb = 0.0000001 % (es. 486 ppb -> 0.0000486).
+        - Non restituire mai il numero in ppm o ppb senza conversione.`;
 
         // 4. Inviamo il Prompt collegando il file appena caricato
         const result = await model.generateContent([
@@ -382,6 +389,14 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
 
         // Carica i limiti IFRA reali dal database (collection Substance)
         const tutteLeSostanzeDB = await Substance.find({});
+
+        // Sostanze con IFRA Standard di tipo SPECIFICA sulla fragranza (olio), non sul prodotto finito.
+        // Il limite è espresso in % nella miscela profumata, NON nella candela.
+        // Toluene (IFRA Amendment 38): vietato come ingrediente, ammesso come impurità max 100 ppm = 0.01 % nell'olio.
+        const LIMITI_SPECIFICA_OLIO = {
+            '108-88-3': 0.01
+        };
+        const motiviNonConformita = [];
         const ifraDB = {};
         tutteLeSostanzeDB.forEach(s => {
             ifraDB[s.cas] = s.ifraCat12;
@@ -402,8 +417,21 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
                 forzaH412Precauzione = true;
             }
 
-                                               if (ifraDB[s.cas] !== undefined && concProdotto > ifraDB[s.cas]) {
-                isSafe = false;
+            const casSostanza = String(s.cas || '').trim();
+            const concOlio = parseFloat(s.concentrazione) || 0;
+            if (LIMITI_SPECIFICA_OLIO[casSostanza] !== undefined) {
+                // Controllo sull'olio profumato (specifica IFRA), non sul prodotto finito
+                if (concOlio > LIMITI_SPECIFICA_OLIO[casSostanza]) {
+                    isSafe = false;
+                    motiviNonConformita.push(`${s.nome} (${casSostanza}): ${concOlio}% nella fragranza, limite IFRA ${LIMITI_SPECIFICA_OLIO[casSostanza]}% nella fragranza`);
+                }
+            } else {
+                const limiteCat12 = ifraDB[casSostanza];
+                // Si confronta solo se il limite è un numero valido (null/undefined = dato mancante, non "limite zero")
+                if (typeof limiteCat12 === 'number' && !isNaN(limiteCat12) && concProdotto > limiteCat12) {
+                    isSafe = false;
+                    motiviNonConformita.push(`${s.nome} (${casSostanza}): ${concProdotto.toFixed(4)}% nel prodotto finito, limite IFRA Cat.12 ${limiteCat12}%`);
+                }
             }
 
             if (s.clp) {
@@ -446,6 +474,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
 
         res.json({
             isSafe,
+            motiviNonConformita,
             listaH_finali,
             scattaUFI,
             allergeniEtichetta,
