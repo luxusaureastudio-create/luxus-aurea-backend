@@ -296,6 +296,7 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
             {
               "nome": "NOME DELLA SOSTANZA IN MAIUSCOLO",
               "cas": "NUMERO CAS (formato XXX-XX-X)",
+              "concentrazione_min": 0.0,
               "concentrazione": 0.0,
               "clp": "CODICI H DI PERICOLO (separati da virgola, es. H317, H411)"
             }
@@ -304,7 +305,8 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
 
         REGOLE PER IL CAMPO "concentrazione":
         - Deve essere SEMPRE un numero espresso in PERCENTUALE (%) in peso nella miscela.
-        - Se la SDS indica un intervallo (es. ">= 5% - < 10%"), usa il valore MASSIMO dell'intervallo (es. 10).
+        - Se la SDS indica un intervallo (es. ">= 5% - < 10%"), metti in "concentrazione" il valore MASSIMO (es. 10) e in "concentrazione_min" il valore MINIMO (es. 5).
+        - Se la SDS indica un valore singolo (es. "319 ppm" o "2%"), usa lo stesso valore sia in "concentrazione" sia in "concentrazione_min".
         - Se la SDS indica ppm, converti: 1 ppm = 0.0001 % (es. 319 ppm -> 0.0319).
         - Se la SDS indica ppb, converti: 1 ppb = 0.0000001 % (es. 486 ppb -> 0.0000486).
         - Non restituire mai il numero in ppm o ppb senza conversione.`;
@@ -403,22 +405,72 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         });
 
         
+        // ------------------------------------------------------------------
+        // CASO PEGGIORE REALISTICO
+        // Le SDS riportano intervalli (es. ">= 30% - < 40%"). Prendere il massimo di TUTTI
+        // gli intervalli insieme può dare una formula che supera il 100% (impossibile).
+        // Qui si usa il massimo di ogni intervallo, ma con il vincolo che la somma dei
+        // componenti non superi il 100%: per ogni classe di pericolo si "riempie" il
+        // margine disponibile partendo dalle sostanze che pesano di più.
+        // Se i dati non lo permettono (minimi mancanti o somma minimi > 100), si torna
+        // al criterio del massimo di tutti gli intervalli.
+        // ------------------------------------------------------------------
+        const componenti = sostanze.map(s => {
+            const max = Math.max(0, parseFloat(s.concentrazione) || 0);
+            let min = parseFloat(s.concentrazione_min);
+            if (!isFinite(min) || min < 0 || min > max) min = max;
+            const codici = s.clp ? (String(s.clp).toUpperCase().match(/H\d{3}[A-Z]?|EUH\d{3}/g) || []) : [];
+            return { s, min, max, codici, cas: String(s.cas || '').trim(), nome: s.nome };
+        });
+
+        const sommaMin = componenti.reduce((t, c) => t + c.min, 0);
+        const sommaMax = componenti.reduce((t, c) => t + c.max, 0);
+        const margine = 100 - sommaMin;
+        const vincolo100 = margine >= 0 && sommaMax > 100;
+        let notaCalcolo = '';
+        if (vincolo100) {
+            notaCalcolo = `Calcolo sul caso peggiore realistico: massimo di ogni intervallo SDS con totale formula vincolato al 100% (somma dei massimi dichiarati: ${sommaMax.toFixed(1)}%).`;
+        } else if (sommaMax > 100) {
+            notaCalcolo = `Calcolo prudenziale sul massimo di tutti gli intervalli SDS (dati minimi non disponibili; somma dei massimi: ${sommaMax.toFixed(1)}%).`;
+        }
+
+        // Concentrazione massima realistica della singola sostanza nella fragranza
+        const maxSingolo = c => vincolo100 ? Math.min(c.max, c.min + margine) : c.max;
+
+        // Somma pesata nel caso peggiore, espressa in % nel prodotto finito
+        const casoPeggiore = pesoFn => {
+            const pesati = componenti.map(c => ({ c, w: pesoFn(c) })).filter(x => x.w > 0);
+            let totale;
+            if (!vincolo100) {
+                totale = pesati.reduce((t, x) => t + x.w * x.c.max, 0);
+            } else {
+                totale = pesati.reduce((t, x) => t + x.w * x.c.min, 0);
+                let residuo = margine;
+                pesati.sort((a, b) => b.w - a.w).forEach(x => {
+                    const extra = Math.min(x.c.max - x.c.min, residuo);
+                    if (extra > 0) { totale += x.w * extra; residuo -= extra; }
+                });
+            }
+            return totale * target / 100;
+        };
+        const ha = h => c => c.codici.includes(h) ? 1 : 0;
+
         let isSafe = true;
         let allergeniEtichetta = [];
-        let sumH318 = 0, sumH315 = 0, sumH319 = 0, sumH400 = 0, sumH410 = 0, sumH411 = 0, sumH412 = 0;
         let hasSensitizer = false, hasRepro = false, containsEndocrine = false;
         let forzaH412Precauzione = false;
 
-        sostanze.forEach(s => {
-            const concProdotto = (parseFloat(s.concentrazione) || 0) * target / 100;
+        componenti.forEach(c => {
+            const s = c.s;
+            const concOlio = maxSingolo(c);
+            const concProdotto = concOlio * target / 100;
             const nomeUpper = String(s.nome || '').toUpperCase();
+            const casSostanza = c.cas;
 
-            if ((nomeUpper.includes("MENTA") || nomeUpper.includes("DIENE") || nomeUpper.includes("LIMONENE") || s.cas === "5989-27-5") && concProdotto >= 1.5) {
+            if ((nomeUpper.includes("MENTA") || nomeUpper.includes("DIENE") || nomeUpper.includes("LIMONENE") || casSostanza === "5989-27-5") && concProdotto >= 1.5) {
                 forzaH412Precauzione = true;
             }
 
-            const casSostanza = String(s.cas || '').trim();
-            const concOlio = parseFloat(s.concentrazione) || 0;
             if (LIMITI_SPECIFICA_OLIO[casSostanza] !== undefined) {
                 // Controllo sull'olio profumato (specifica IFRA), non sul prodotto finito
                 if (concOlio > LIMITI_SPECIFICA_OLIO[casSostanza]) {
@@ -434,38 +486,37 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
                 }
             }
 
-            if (s.clp) {
-                const codiciH = String(s.clp).toUpperCase().match(/H\d{3}[A-Z]?|EUH\d{3}/g) || [];
-                codiciH.forEach(h => {
-                    if (h === 'H318') sumH318 += concProdotto;
-                    if (h === 'H315') sumH315 += concProdotto;
-                    if (h === 'H319') sumH319 += concProdotto;
-                    if (h === 'H400') sumH400 += concProdotto;
-                    if (h === 'H410') sumH410 += concProdotto;
-                    if (h === 'H411') sumH411 += concProdotto;
-                    if (h === 'H412') sumH412 += concProdotto;
-                    if (h === 'H317') {
-                        if (concProdotto > 0.1) {
-                            if (!allergeniEtichetta.includes(s.nome)) allergeniEtichetta.push(s.nome);
-                        }
-                        if (concProdotto >= 1.0) hasSensitizer = true;
+            c.codici.forEach(h => {
+                if (h === 'H317') {
+                    if (concProdotto > 0.1) {
+                        if (!allergeniEtichetta.includes(s.nome)) allergeniEtichetta.push(s.nome);
                     }
-                    if (h === 'H360' && concProdotto >= 0.3) hasRepro = true;
-                    if (h === 'EUH380' || h === 'EUH440') containsEndocrine = true;
-                });
-            }
+                    if (concProdotto >= 1.0) hasSensitizer = true;
+                }
+                if (h === 'H360' && concProdotto >= 0.3) hasRepro = true;
+                if (h === 'EUH380' || h === 'EUH440') containsEndocrine = true;
+            });
         });
+
+        // Somme additive nel caso peggiore (ognuna calcolata per la propria classe di pericolo)
+        const sumH318 = casoPeggiore(ha('H318'));
+        const sumH315 = casoPeggiore(ha('H315'));
+        const sumH319 = casoPeggiore(ha('H319'));
+        const sumH318_319 = casoPeggiore(c => (c.codici.includes('H318') || c.codici.includes('H319')) ? 1 : 0);
+        const sumH410 = casoPeggiore(ha('H410'));
+        const testH411 = casoPeggiore(c => c.codici.includes('H410') ? 10 : (c.codici.includes('H411') ? 1 : 0));
+        const testH412 = casoPeggiore(c => c.codici.includes('H410') ? 100 : (c.codici.includes('H411') ? 10 : (c.codici.includes('H412') ? 1 : 0)));
 
         let codiciMiscela = new Set();
         if (sumH318 >= 3.0) codiciMiscela.add('H318');
-        else if (sumH318 >= 1.0 || sumH319 >= 10.0 || (sumH318 + sumH319) >= 10.0) codiciMiscela.add('H319');
+        else if (sumH318 >= 1.0 || sumH319 >= 10.0 || sumH318_319 >= 10.0) codiciMiscela.add('H319');
         if (sumH315 >= 10.0) codiciMiscela.add('H315');
         if (hasSensitizer) codiciMiscela.add('H317');
         if (hasRepro) codiciMiscela.add('H360');
 
         if (sumH410 >= 25.0) codiciMiscela.add('H410');
-        else if ((sumH411 + 10 * sumH410) >= 25.0) codiciMiscela.add('H411');
-        else if ((sumH412 + 10 * sumH411 + 100 * sumH410) >= 25.0 || forzaH412Precauzione) {
+        else if (testH411 >= 25.0) codiciMiscela.add('H411');
+        else if (testH412 >= 25.0 || forzaH412Precauzione) {
             codiciMiscela.add('H412');
         }
 
@@ -475,6 +526,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         res.json({
             isSafe,
             motiviNonConformita,
+            notaCalcolo,
             listaH_finali,
             scattaUFI,
             allergeniEtichetta,

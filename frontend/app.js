@@ -90,7 +90,7 @@ async function uploadPDF() {
                 preflight.style.display = 'block';
                 listDiv.innerHTML = sostanzeTrovate.map(s => `
     <div style="padding:10px; border-bottom:1px solid #eee;">
-        <strong>${escapeHTML((s.nome || "Sconosciuto").toUpperCase())}</strong> (CAS: ${escapeHTML(s.cas || "N/D")}) - <span style="color:#b59a5b;">${s.concentrazione || 0}%</span>
+        <strong>${escapeHTML((s.nome || "Sconosciuto").toUpperCase())}</strong> (CAS: ${escapeHTML(s.cas || "N/D")}) - <span style="color:#b59a5b;">${(s.concentrazione_min !== undefined && s.concentrazione_min !== null && Number(s.concentrazione_min) !== Number(s.concentrazione)) ? `${s.concentrazione_min}–${s.concentrazione || 0}%` : `${s.concentrazione || 0}%`}</span>
     </div>`).join('');
             }
             
@@ -136,6 +136,7 @@ async function runAnalysis() {
     let hasRepro = false;
     let containsEndocrine = false;
     let motiviNonConformita = [];
+    let notaCalcolo = '';
 
     try {
         const compRes = await fetch(`${BASE_URL}/api/calculate-compliance`, {
@@ -152,6 +153,7 @@ async function runAnalysis() {
             hasRepro = comp.hasRepro;
             containsEndocrine = comp.containsEndocrine;
             motiviNonConformita = comp.motiviNonConformita || [];
+            notaCalcolo = comp.notaCalcolo || '';
         } else {
             alert("Errore nel calcolo della conformità. Riprova.");
             return;
@@ -179,6 +181,7 @@ resultsDiv.innerHTML = `
                 <span>ESITO IFRA: <b style="color:${isSafe ? 'green' : 'red'};">${isSafe ? 'CONFORME' : 'NON CONFORME'}</b></span>
                 <span>COSTO: € ${costoFinale.toFixed(2)} / kg</span>
             </div>
+            ${notaCalcolo ? `<div style="font-size:10px; color:#475569; font-style:italic; margin:-15px 0 20px 0;">${escapeHTML(notaCalcolo)}</div>` : ''}
             ${!isSafe && motiviNonConformita.length ? `<div style="font-size:11px; color:#b91c1c; margin:-15px 0 25px 0;"><strong>Motivo:</strong><br>${motiviNonConformita.map(escapeHTML).join('<br>')}</div>` : ''}
 
             <div style="display:flex; flex-wrap:wrap; gap:40px; align-items:flex-start;">
