@@ -298,7 +298,9 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
               "cas": "NUMERO CAS (formato XXX-XX-X)",
               "concentrazione_min": 0.0,
               "concentrazione": 0.0,
-              "clp": "CODICI H DI PERICOLO (separati da virgola, es. H317, H411)"
+              "clp": "CODICI H DI PERICOLO (separati da virgola, es. H317, H411)",
+              "sens_categoria": "CATEGORIA DI SENSIBILIZZAZIONE CUTANEA: 1A, 1B, 1 oppure stringa vuota",
+              "scl_h317": null
             }
           ]
         }
@@ -309,7 +311,16 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
         - Se la SDS indica un valore singolo (es. "319 ppm" o "2%"), usa lo stesso valore sia in "concentrazione" sia in "concentrazione_min".
         - Se la SDS indica ppm, converti: 1 ppm = 0.0001 % (es. 319 ppm -> 0.0319).
         - Se la SDS indica ppb, converti: 1 ppb = 0.0000001 % (es. 486 ppb -> 0.0000486).
-        - Non restituire mai il numero in ppm o ppb senza conversione.`;
+        - Non restituire mai il numero in ppm o ppb senza conversione.
+
+        REGOLE PER LA CLASSIFICAZIONE:
+        - Le righe della tabella possono essere SPEZZATE tra due pagine: la classificazione di una sostanza può continuare
+          in cima alla pagina successiva. Unisci sempre la continuazione alla sostanza della riga precedente e riporta
+          TUTTI i codici H di quella sostanza (es. se a fine pagina c'è "Skin Sens." e a inizio pagina "1A H317", la sostanza ha H317 cat. 1A).
+        - In "clp" includi tutti i codici H (anche H314 per Skin Corr., H318 per Eye Dam., H400/H410/H411/H412 per l'ambiente).
+        - In "sens_categoria" indica la categoria di Skin Sens. (1A, 1B o 1) se la sostanza ha H317, altrimenti "".
+        - In "scl_h317" indica il limite di concentrazione specifico in % per Skin Sens. se la SDS lo riporta
+          (es. "C >= 0,01%: Skin Sens. 1A H317" -> 0.01), altrimenti null.`;
 
         // 4. Inviamo il Prompt collegando il file appena caricato
         const result = await model.generateContent([
@@ -440,6 +451,45 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             '5989-27-5': 'd-limonene'
         };
 
+        // Rete di sicurezza: sensibilizzanti cutanei noti (classificazione tipica delle SDS dei fornitori).
+        // Se l'IA non legge H317 (es. riga spezzata tra due pagine) lo si aggiunge comunque;
+        // tra la categoria letta e quella nota si usa la più severa.
+        const SENSIBILIZZANTI_NOTI = {
+            '104-55-2': { cat: '1A' },               // Cinnamal
+            '97-54-1':  { cat: '1A', scl: 0.01 },    // Isoeugenol
+            '111-80-8': { cat: '1A' },               // Methyl 2-nonynoate
+            '111-12-6': { cat: '1A' },               // Methyl 2-octynoate
+            '97-53-0':  { cat: '1B' },               // Eugenol
+            '106-24-1': { cat: '1' },                // Geraniol
+            '5392-40-5':{ cat: '1B' },               // Citral
+            '107-75-5': { cat: '1B' },               // Hydroxycitronellal
+            '122-40-7': { cat: '1' },                // Amyl cinnamal
+            '101-86-0': { cat: '1B' },               // Hexyl cinnamal
+            '104-54-1': { cat: '1B' },               // Cinnamyl alcohol
+            '91-64-5':  { cat: '1B' },               // Coumarin
+            '4602-84-0':{ cat: '1B' },               // Farnesol
+            '106-22-9': { cat: '1B' },               // Citronellol
+            '78-70-6':  { cat: '1B' },               // Linalool
+            '5989-27-5':{ cat: '1B' },               // d-Limonene
+            '118-58-1': { cat: '1B' },               // Benzyl salicylate
+            '115-95-7': { cat: '1B' }                // Linalyl acetate
+        };
+        const severita = { '1A': 3, '1': 2, '1B': 1 };
+        componenti.forEach(c => {
+            const nota = SENSIBILIZZANTI_NOTI[c.cas];
+            let cat = String(c.s.sens_categoria || '').toUpperCase().replace(/\s/g, '');
+            if (!severita[cat]) cat = c.codici.includes('H317') ? '1' : '';
+            if (nota) {
+                if (!c.codici.includes('H317')) c.codici.push('H317');
+                if (!cat || severita[nota.cat] > severita[cat]) cat = nota.cat;
+            }
+            c.sensCat = cat;
+            let scl = parseFloat(c.s.scl_h317);
+            if (!isFinite(scl) || scl <= 0) scl = (nota && nota.scl) ? nota.scl : null;
+            // Limite di classificazione H317 nel prodotto finito (CLP Allegato I, tab. 3.4.5)
+            c.limiteH317 = scl !== null ? scl : (cat === '1A' ? 0.1 : 1.0);
+        });
+
         const maxSingolo = c => vincolo100 ? Math.min(c.max, c.min + margine) : c.max;
 
         // Somma pesata nel caso peggiore, espressa in % nel prodotto finito
@@ -493,11 +543,12 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
 
             c.codici.forEach(h => {
                 if (h === 'H317') {
-                    if (concProdotto > 0.1) {
+                    // Nome in etichetta: sostanze >= 1/10 del limite di classificazione (0,1% per 1/1B, 0,01% per 1A)
+                    if (concProdotto >= c.limiteH317 / 10) {
                         const nomeEtichetta = NOMI_ETICHETTA[casSostanza] || s.nome;
                         if (!allergeniEtichetta.includes(nomeEtichetta)) allergeniEtichetta.push(nomeEtichetta);
                     }
-                    if (concProdotto >= 1.0) hasSensitizer = true;
+                    if (concProdotto >= c.limiteH317) hasSensitizer = true;
                 }
                 if (h === 'H360' && concProdotto >= 0.3) hasRepro = true;
                 if (h === 'EUH380' || h === 'EUH440') containsEndocrine = true;
@@ -505,18 +556,23 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         });
 
         // Somme additive nel caso peggiore (ognuna calcolata per la propria classe di pericolo)
-        const sumH318 = casoPeggiore(ha('H318'));
-        const sumH315 = casoPeggiore(ha('H315'));
-        const sumH319 = casoPeggiore(ha('H319'));
-        const sumH318_319 = casoPeggiore(c => (c.codici.includes('H318') || c.codici.includes('H319')) ? 1 : 0);
+        // Categoria 1 pelle/occhi: H314 (corrosivo) conta anche come danno oculare grave
+        const cat1Occhi = c => (c.codici.includes('H314') || c.codici.includes('H318')) ? 1 : 0;
+        const sumH314 = casoPeggiore(ha('H314'));
+        const sumH318 = casoPeggiore(cat1Occhi);
+        // H315: Skin Irrit 2 >= 10%  oppure  10 x Skin Corr 1 + Skin Irrit 2 >= 10%
+        const sumH315 = casoPeggiore(c => c.codici.includes('H314') ? 10 : (c.codici.includes('H315') ? 1 : 0));
+        // H319: Eye Irrit 2 >= 10%  oppure  10 x (Skin Corr 1 + Eye Dam 1) + Eye Irrit 2 >= 10%
+        const sumH319 = casoPeggiore(c => cat1Occhi(c) ? 10 : (c.codici.includes('H319') ? 1 : 0));
         const sumH410 = casoPeggiore(ha('H410'));
         const testH411 = casoPeggiore(c => c.codici.includes('H410') ? 10 : (c.codici.includes('H411') ? 1 : 0));
         const testH412 = casoPeggiore(c => c.codici.includes('H410') ? 100 : (c.codici.includes('H411') ? 10 : (c.codici.includes('H412') ? 1 : 0)));
 
         let codiciMiscela = new Set();
-        if (sumH318 >= 3.0) codiciMiscela.add('H318');
-        else if (sumH318 >= 1.0 || sumH319 >= 10.0 || sumH318_319 >= 10.0) codiciMiscela.add('H319');
-        if (sumH315 >= 10.0) codiciMiscela.add('H315');
+        if (sumH314 >= 5.0) codiciMiscela.add('H314');
+        else if (sumH318 >= 3.0) codiciMiscela.add('H318');
+        else if (sumH318 >= 1.0 || sumH319 >= 10.0) codiciMiscela.add('H319');
+        if (!codiciMiscela.has('H314') && sumH315 >= 10.0) codiciMiscela.add('H315');
         if (hasSensitizer) codiciMiscela.add('H317');
         if (hasRepro) codiciMiscela.add('H360');
 
@@ -531,6 +587,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
 
         // ---------------- ELEMENTI DELL'ETICHETTA (CLP Allegati III e IV) ----------------
         const TESTI_H = {
+            H314: 'Provoca gravi ustioni cutanee e gravi lesioni oculari.',
             H315: 'Provoca irritazione cutanea.',
             H317: 'Può provocare una reazione allergica cutanea.',
             H318: 'Provoca gravi lesioni oculari.',
@@ -543,19 +600,20 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         const frasiH = listaH_finali.map(h => ({ codice: h, testo: TESTI_H[h] || '' }));
 
         // Avvertenza: PERICOLO prevale su ATTENZIONE; H411/H412 non richiedono avvertenza
-        const H_PERICOLO = ['H318', 'H360'];
+        const H_PERICOLO = ['H314', 'H318', 'H360'];
         const H_ATTENZIONE = ['H315', 'H317', 'H319', 'H410'];
         let avvertenza = '';
         if (listaH_finali.some(h => H_PERICOLO.includes(h))) avvertenza = 'PERICOLO';
         else if (listaH_finali.some(h => H_ATTENZIONE.includes(h))) avvertenza = 'ATTENZIONE';
 
         // Consigli di prudenza per prodotto destinato al consumatore (candela).
-        // Ordine = priorità; massimo 6 frasi (CLP art. 28, par. 3).
+        // CLP art. 28, par. 3: di norma non più di 6 frasi, salvo quando servono per natura e gravità dei pericoli.
         const TESTI_P = {
             'P101': "In caso di consultazione di un medico, tenere a disposizione il contenitore o l'etichetta del prodotto.",
             'P102': 'Tenere fuori dalla portata dei bambini.',
             'P201': "Procurarsi istruzioni specifiche prima dell'uso.",
             'P280': 'Indossare guanti protettivi.',
+            'P303+P361+P353': 'IN CASO DI CONTATTO CON LA PELLE (o con i capelli): togliere immediatamente tutti gli indumenti contaminati. Sciacquare la pelle o fare una doccia.',
             'P302+P352': 'IN CASO DI CONTATTO CON LA PELLE: lavare abbondantemente con acqua e sapone.',
             'P305+P351+P338': 'IN CASO DI CONTATTO CON GLI OCCHI: sciacquare accuratamente per parecchi minuti. Togliere le eventuali lenti a contatto se è agevole farlo. Continuare a sciacquare.',
             'P308+P313': 'IN CASO di esposizione o di possibile esposizione, consultare un medico.',
@@ -573,6 +631,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         const aggiungiP = p => { if (!codiciP.includes(p)) codiciP.push(p); };
         if (haSalute) { aggiungiP('P102'); aggiungiP('P101'); }
         if (haH('H360')) { aggiungiP('P201'); aggiungiP('P308+P313'); }
+        if (haH('H314')) { aggiungiP('P280'); aggiungiP('P303+P361+P353'); aggiungiP('P305+P351+P338'); aggiungiP('P310'); }
         if (haH('H318')) { aggiungiP('P280'); aggiungiP('P305+P351+P338'); aggiungiP('P310'); }
         if (haH('H317') || haH('H315')) aggiungiP('P302+P352');
         if (haH('H317')) aggiungiP('P333+P313');
@@ -580,8 +639,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         if (haH('H319')) { aggiungiP('P305+P351+P338'); aggiungiP('P337+P313'); }
         if (haAmbiente) aggiungiP('P273');
         if (haSalute || haAmbiente) aggiungiP('P501');
-        if (haH('H317')) aggiungiP('P280');
-        const frasiP = codiciP.slice(0, 6).map(p => ({ codice: p, testo: TESTI_P[p] }));
+        const frasiP = codiciP.map(p => ({ codice: p, testo: TESTI_P[p] }));
 
         res.json({
             isSafe,
