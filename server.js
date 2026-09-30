@@ -153,6 +153,71 @@ async function generaConRiprova(parti) {
 // ==========================================
 // PULIZIA DATI ESTRATTI: CAS normalizzati, righe spezzate e doppioni uniti
 // ==========================================
+// Limiti massimi IFRA Categoria 12 (% nel prodotto finito) diversi da 100%, dagli IFRA Standards 51° emendamento
+const IFRA_CAT12_UFFICIALI = {
+    '101-85-9': 79.0,
+    '103-50-4': 0.24,
+    '103-95-7': 16.0,
+    '103694-68-4': 8.6,
+    '104-54-1': 51.0,
+    '105-13-5': 14.0,
+    '1125-12-8': 9.5,
+    '1205-17-0': 12.0,
+    '123-11-5': 31.0,
+    '1331-81-3': 14.0,
+    '1340-11-0': 31.0,
+    '13674-19-6': 28.0,
+    '13828-37-0': 28.0,
+    '140-67-0': 0.11,
+    '1407-27-8': 0.11,
+    '16251-77-7': 9.6,
+    '16587-71-6': 61.0,
+    '1754-00-3': 53.0,
+    '18127-01-0': 6.9,
+    '1891-67-4': 80.0,
+    '2244-16-8': 17.0,
+    '2563-07-7': 4.2,
+    '2986-54-1': 0.18,
+    '31906-04-4': 91.0,
+    '33704-61-9': 9.4,
+    '33885-52-8': 25.0,
+    '34713-70-7': 31.0,
+    '471-15-8': 9.5,
+    '499-70-7': 0.0019,
+    '51414-25-6': 91.0,
+    '53243-59-7': 65.0,
+    '53243-60-0': 65.0,
+    '53767-86-5': 0.1,
+    '546-80-5': 9.5,
+    '5471-51-2': 78.0,
+    '5502-75-0': 28.0,
+    '55722-59-3': 53.0,
+    '59471-80-6': 0.0019,
+    '62518-65-4': 64.0,
+    '6259-76-3': 64.0,
+    '63477-41-8': 58.0,
+    '6485-40-1': 17.0,
+    '67634-03-1': 20.0,
+    '68480-15-9': 0.0013,
+    '72203-97-5': 53.0,
+    '72203-98-6': 53.0,
+    '7493-74-5': 52.0,
+    '76231-76-0': 9.5,
+    '77525-18-9': 0.11,
+    '80-54-6': 16.0,
+    '863306-60-9': 52.0,
+    '91-64-5': 33.0,
+    '916887-53-1': 66.0,
+    '93-15-2': 0.066,
+    '93-29-8': 16.0,
+    '93-53-8': 31.0,
+    '93893-89-1': 65.0,
+    '94-86-0': 58.0,
+    '98-01-1': 0.05,
+    '98-53-3': 58.0,
+    '99-49-0': 17.0
+};
+
 const RE_CAS = /^\d{2,7}-\d{2}-\d$/;
 function normalizzaCas(cas) {
     const cifre = String(cas || '').match(/\d+/g);
@@ -208,6 +273,8 @@ function unisci(t, s, continuazione = false) {
     else if (ns.length > nt.length && ns.toUpperCase().includes(nt.toUpperCase())) t.nome = ns;
     const sev = { '1A': 3, '1': 2, '1B': 1 };
     if ((sev[s.sens_categoria] || 0) > (sev[t.sens_categoria] || 0)) t.sens_categoria = s.sens_categoria;
+    const mS = parseFloat(s.m_cronico), mT = parseFloat(t.m_cronico);
+    if (isFinite(mS) && mS > (isFinite(mT) ? mT : 1)) t.m_cronico = mS;
     const sclS = parseFloat(s.scl_h317), sclT = parseFloat(t.scl_h317);
     if (isFinite(sclS) && sclS > 0 && (!isFinite(sclT) || sclS < sclT)) t.scl_h317 = sclS;
 }
@@ -396,7 +463,8 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
               "concentrazione": 0.0,
               "clp": "CODICI H DI PERICOLO (separati da virgola, es. H317, H411)",
               "sens_categoria": "CATEGORIA DI SENSIBILIZZAZIONE CUTANEA: 1A, 1B, 1 oppure stringa vuota",
-              "scl_h317": null
+              "scl_h317": null,
+              "m_cronico": 1
             }
           ]
         }
@@ -419,7 +487,10 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
         - In "clp" includi tutti i codici H (anche H314 per Skin Corr., H318 per Eye Dam., H400/H410/H411/H412 per l'ambiente).
         - In "sens_categoria" indica la categoria di Skin Sens. (1A, 1B o 1) se la sostanza ha H317, altrimenti "".
         - In "scl_h317" indica il limite di concentrazione specifico in % per Skin Sens. se la SDS lo riporta
-          (es. "C >= 0,01%: Skin Sens. 1A H317" -> 0.01), altrimenti null.`;
+          (es. "C >= 0,01%: Skin Sens. 1A H317" -> 0.01), altrimenti null.
+        - In "m_cronico" indica il FATTORE M per la tossicità acquatica CRONICA (es. "M=10", "Mchronic = 10",
+          "M=1 (toxicité chronique)") se la SDS lo riporta. Se è indicato un solo fattore M senza specificare, usalo.
+          Se non è indicato, usa 1.`;
 
         // 4. Inviamo il Prompt collegando il file appena caricato
         const result = await generaConRiprova([
@@ -523,9 +594,12 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         };
         const motiviNonConformita = [];
         const ifraDB = {};
+        const RIPRODUZIONE_1B = { '80-54-6': true };
         tutteLeSostanzeDB.forEach(s => {
             ifraDB[s.cas] = s.ifraCat12;
         });
+        // Limiti ufficiali IFRA 51° emendamento, Categoria 12 (<100%), estratti dagli Standard: prevalgono sul database
+        Object.keys(IFRA_CAT12_UFFICIALI).forEach(cas => { ifraDB[cas] = IFRA_CAT12_UFFICIALI[cas]; });
 
         
         // ------------------------------------------------------------------
@@ -545,7 +619,12 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             let min = parseFloat(s.concentrazione_min);
             if (!isFinite(min) || min < 0 || min > max) min = max;
             const codici = s.clp ? (String(s.clp).toUpperCase().match(/H\d{3}[A-Z]?|EUH\d{3}/g) || []) : [];
-            return { s, min, max, codici, cas: String(s.cas || '').trim(), nome: s.nome };
+            const casC = String(s.cas || '').trim();
+            // Classificazione armonizzata aggiornata (ATP 17, in vigore dal 2022): Lilial Repr. 1B H360
+            if (RIPRODUZIONE_1B[casC] && !codici.includes('H360')) codici.push('H360');
+            let m = parseFloat(s.m_cronico);
+            if (!isFinite(m) || m < 1) m = 1;
+            return { s, min, max, codici, cas: casC, nome: s.nome, m };
         });
 
         const sommaMin = componenti.reduce((t, c) => t + c.min, 0);
@@ -578,7 +657,14 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             '8008-57-9': 'Citrus aurantium dulcis peel oil', '8022-15-9': 'Lavandula hybrida oil',
             '8008-79-5': 'Mentha viridis leaf oil', '8000-46-2': 'Pelargonium graveolens oil',
             '8007-75-8': 'Citrus aurantium bergamia peel oil', '8014-09-3': 'Pogostemon cablin oil',
-            '8000-34-8': 'Eugenia caryophyllus leaf oil', '8006-82-4': 'Piper nigrum fruit oil'
+            '8000-34-8': 'Eugenia caryophyllus leaf oil', '8006-82-4': 'Piper nigrum fruit oil',
+            '80-25-1': 'p-Menthan-8-yl acetate', '8008-56-8': 'Citrus limon peel oil', '8002-09-3': 'Pine oil',
+            '78-69-3': 'Tetrahydrolinalool', '165184-98-5': 'Hexyl cinnamal',
+            '31906-04-4': 'Hydroxyisohexyl 3-cyclohexene carboxaldehyde', '1205-17-0': 'Methylenedioxyphenyl methylpropanal',
+            '4180-23-8': 'Anethole', '4707-47-5': 'Methyl atrarate', '77-83-8': 'Ethyl methylphenylglycidate',
+            '103694-68-4': 'Dimethyl tolylpropanol', '5462-06-6': '3-(4-Methoxyphenyl)-2-methylpropanal',
+            '68039-49-6': 'Dimethylcyclohexene carboxaldehyde', '80-54-6': 'Butylphenyl methylpropional',
+            '127-91-3': 'beta-Pinene', '105-87-3': 'Geranyl acetate'
         };
 
         // Rete di sicurezza: sensibilizzanti cutanei noti (classificazione tipica delle SDS dei fornitori).
@@ -602,7 +688,30 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             '78-70-6':  { cat: '1B' },               // Linalool
             '5989-27-5':{ cat: '1B' },               // d-Limonene
             '118-58-1': { cat: '1B' },               // Benzyl salicylate
-            '115-95-7': { cat: '1B' }                // Linalyl acetate
+            '115-95-7': { cat: '1B' },               // Linalyl acetate
+            '470-82-6': { cat: '1B' },               // Eucalyptol
+            '32388-55-9': { cat: '1B' },             // Acetyl cedrene
+            '32210-23-4': { cat: '1B' },             // 4-tert-Butylcyclohexyl acetate
+            '54464-57-2': { cat: '1B' },             // OTNE (Iso E Super)
+            '103-95-7': { cat: '1B' },               // Cyclamen aldehyde
+            '106-23-0': { cat: '1B' },               // Citronellal
+            '106-25-2': { cat: '1B' },               // Nerol
+            '105-87-3': { cat: '1B' },               // Geranyl acetate
+            '80-56-8': { cat: '1B' },                // alpha-Pinene
+            '7785-26-4': { cat: '1B' },              // alpha-Pinene (1S)
+            '127-91-3': { cat: '1B' },               // beta-Pinene
+            '4180-23-8': { cat: '1B' },              // Anethole
+            '6259-76-3': { cat: '1B' },              // Hexyl salicylate
+            '165184-98-5': { cat: '1B' },            // Hexyl cinnamal
+            '31906-04-4': { cat: '1A' },             // HICC (Lyral)
+            '80-54-6': { cat: '1B' },                // Lilial
+            '1205-17-0': { cat: '1B' },              // Helional
+            '103694-68-4': { cat: '1B' },            // Majantol
+            '77-83-8': { cat: '1B' },                // Ethyl methylphenylglycidate
+            '68039-49-6': { cat: '1B' },             // Triplal
+            '5462-06-6': { cat: '1B' },              // Fennaldehyde
+            '87-44-5': { cat: '1B' },                // Caryophyllene
+            '4707-47-5': { cat: '1B' }               // Methyl atrarate
         };
         const severita = { '1A': 3, '1': 2, '1B': 1 };
         componenti.forEach(c => {
@@ -695,9 +804,10 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         const sumH315 = casoPeggiore(c => c.codici.includes('H314') ? 10 : (c.codici.includes('H315') ? 1 : 0));
         // H319: Eye Irrit 2 >= 10%  oppure  10 x (Skin Corr 1 + Eye Dam 1) + Eye Irrit 2 >= 10%
         const sumH319 = casoPeggiore(c => cat1Occhi(c) ? 10 : (c.codici.includes('H319') ? 1 : 0));
-        const sumH410 = casoPeggiore(ha('H410'));
-        const testH411 = casoPeggiore(c => c.codici.includes('H410') ? 10 : (c.codici.includes('H411') ? 1 : 0));
-        const testH412 = casoPeggiore(c => c.codici.includes('H410') ? 100 : (c.codici.includes('H411') ? 10 : (c.codici.includes('H412') ? 1 : 0)));
+        // CLP Allegato I, 4.1.3.5.5: le sostanze Chronic 1 (H410) si moltiplicano per il fattore M
+        const sumH410 = casoPeggiore(c => c.codici.includes('H410') ? c.m : 0);
+        const testH411 = casoPeggiore(c => c.codici.includes('H410') ? 10 * c.m : (c.codici.includes('H411') ? 1 : 0));
+        const testH412 = casoPeggiore(c => c.codici.includes('H410') ? 100 * c.m : (c.codici.includes('H411') ? 10 : (c.codici.includes('H412') ? 1 : 0)));
 
         let codiciMiscela = new Set();
         if (sumH314 >= 5.0) codiciMiscela.add('H314');
