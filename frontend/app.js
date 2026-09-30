@@ -137,6 +137,7 @@ async function runAnalysis() {
     let containsEndocrine = false;
     let motiviNonConformita = [];
     let notaCalcolo = '';
+    let avvisiLettura = [];
     let frasiH = [];
     let frasiP = [];
     let avvertenza = '';
@@ -157,6 +158,7 @@ async function runAnalysis() {
             containsEndocrine = comp.containsEndocrine;
             motiviNonConformita = comp.motiviNonConformita || [];
             notaCalcolo = comp.notaCalcolo || '';
+            avvisiLettura = comp.avvisiLettura || [];
             frasiH = comp.frasiH || [];
             frasiP = comp.frasiP || [];
             avvertenza = comp.avvertenza || '';
@@ -197,6 +199,7 @@ resultsDiv.innerHTML = `
                 <span>ESITO IFRA: <b style="color:${isSafe ? 'green' : 'red'};">${isSafe ? 'CONFORME' : 'NON CONFORME'}</b></span>
                 <span>COSTO: € ${costoFinale.toFixed(2)} / kg</span>
             </div>
+            ${avvisiLettura.length ? `<div style="font-size:10px; color:#92400e; background:#fffbeb; border:1px solid #fcd34d; padding:8px; margin:-10px 0 20px 0;"><strong>Righe della SDS unite automaticamente:</strong><br>${avvisiLettura.map(escapeHTML).join('<br>')}</div>` : ''}
             ${notaCalcolo ? `<div style="font-size:10px; color:#475569; font-style:italic; margin:-15px 0 20px 0;">${escapeHTML(notaCalcolo)}</div>` : ''}
             ${!isSafe && motiviNonConformita.length ? `<div style="font-size:11px; color:#b91c1c; margin:-15px 0 25px 0;"><strong>Motivo:</strong><br>${motiviNonConformita.map(escapeHTML).join('<br>')}</div>` : ''}
 
@@ -214,7 +217,7 @@ resultsDiv.innerHTML = `
                         ${pittogrammiHTML || '<span style="font-size:10px;">Nessun Pittogramma Richiesto</span>'}
                     </div>
                     
-                    <div style="color:#b91c1c; font-weight:bold; text-align:center; font-size:12px; margin-bottom:10px;">
+                    <div style="color:${listaH_finali.length ? '#b91c1c' : '#475569'}; font-weight:bold; text-align:center; font-size:12px; margin-bottom:10px;">
                         ${avvertenza ? `<div style="font-size:16px; letter-spacing:1px; margin-bottom:6px;">${escapeHTML(avvertenza)}</div>` : ''}
                         ${frasiH.length ? frasiH.map(h => `<div style="font-size:11px;">${escapeHTML(h.codice)} ${escapeHTML(h.testo)}</div>`).join('') : (listaH_finali.join(', ') || 'NESSUN PERICOLO CLASSIFICATO')}
                     </div>

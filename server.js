@@ -116,6 +116,102 @@ const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_KEY);
 const upload = multer({ storage: multer.memoryStorage() });
 
+// ==========================================
+// GEMINI: modello principale + riserva, risposta solo JSON, nuovi tentativi automatici
+// ==========================================
+const MODELLI_GEMINI = [
+    process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite"
+];
+const attesa = ms => new Promise(r => setTimeout(r, ms));
+const erroreTemporaneo = err => {
+    const st = err && (err.status || (err.response && err.response.status));
+    const msg = String((err && err.message) || '');
+    return [429, 500, 502, 503, 504].includes(st) || /overloaded|high demand|unavailable|timeout|ECONNRESET|fetch failed/i.test(msg);
+};
+async function generaConRiprova(parti) {
+    let ultimoErrore;
+    for (const nomeModello of MODELLI_GEMINI) {
+        const m = genAI.getGenerativeModel({
+            model: nomeModello,
+            generationConfig: { responseMimeType: "application/json", temperature: 0 }
+        });
+        for (let tentativo = 1; tentativo <= 3; tentativo++) {
+            try {
+                return await m.generateContent(parti);
+            } catch (err) {
+                ultimoErrore = err;
+                console.warn(`Gemini ${nomeModello} tentativo ${tentativo} fallito: ${err.status || ''} ${err.message}`);
+                if (!erroreTemporaneo(err)) break;          // errore non temporaneo: passa al modello di riserva
+                if (tentativo < 3) await attesa(2000 * tentativo * tentativo); // 2s, 8s
+            }
+        }
+    }
+    throw ultimoErrore;
+}
+
+// ==========================================
+// PULIZIA DATI ESTRATTI: CAS normalizzati, righe spezzate e doppioni uniti
+// ==========================================
+const RE_CAS = /^\d{2,7}-\d{2}-\d$/;
+function normalizzaCas(cas) {
+    const cifre = String(cas || '').match(/\d+/g);
+    if (!cifre || cifre.length !== 3) return String(cas || '').trim();
+    const c = cifre.join('-');
+    return RE_CAS.test(c) ? c : String(cas || '').trim();
+}
+function codiciH(clp) {
+    return String(clp || '').toUpperCase().match(/H\d{3}[A-Z]?|EUH\d{3}/g) || [];
+}
+function normalizzaSostanze(lista) {
+    const avvisi = [];
+    const risultato = [];
+    const perCas = {};
+    (Array.isArray(lista) ? lista : []).forEach(orig => {
+        const s = { ...orig };
+        s.cas = normalizzaCas(s.cas);
+        const casValido = RE_CAS.test(s.cas);
+        const precedente = risultato[risultato.length - 1];
+        if (casValido && perCas[s.cas]) {
+            // Stesso CAS già presente: è la stessa sostanza (riga spezzata o ripetuta)
+            const t = perCas[s.cas];
+            unisci(t, s);
+            avvisi.push(`"${s.nome}" unita a "${t.nome}" (stesso CAS ${s.cas})`);
+            return;
+        }
+        if (!casValido && precedente) {
+            // Riga senza CAS subito dopo un'altra: continuazione della riga precedente
+            unisci(precedente, s, true);
+            avvisi.push(`"${s.nome || 'riga senza nome'}" (senza CAS) unita a "${precedente.nome}"`);
+            return;
+        }
+        risultato.push(s);
+        if (casValido) perCas[s.cas] = s;
+    });
+    return { lista: risultato, avvisi };
+}
+function unisci(t, s, continuazione = false) {
+    const codici = new Set([...codiciH(t.clp), ...codiciH(s.clp)]);
+    t.clp = Array.from(codici).join(', ');
+    if (!continuazione) {
+        const maxT = parseFloat(t.concentrazione) || 0, maxS = parseFloat(s.concentrazione) || 0;
+        const minT = parseFloat(t.concentrazione_min), minS = parseFloat(s.concentrazione_min);
+        t.concentrazione = Math.max(maxT, maxS);
+        if (isFinite(minT) || isFinite(minS)) t.concentrazione_min = Math.max(isFinite(minT) ? minT : 0, isFinite(minS) ? minS : 0);
+    } else if (!(parseFloat(t.concentrazione) > 0) && parseFloat(s.concentrazione) > 0) {
+        t.concentrazione = s.concentrazione;
+        t.concentrazione_min = s.concentrazione_min;
+    }
+    // Nome: se uno dei due è il pezzo mancante dell'altro, li si ricompone
+    const nt = String(t.nome || ''), ns = String(s.nome || '');
+    if (continuazione && ns && !nt.toUpperCase().includes(ns.toUpperCase())) t.nome = (nt + ns).replace(/\s+/g, ' ').trim();
+    else if (ns.length > nt.length && ns.toUpperCase().includes(nt.toUpperCase())) t.nome = ns;
+    const sev = { '1A': 3, '1': 2, '1B': 1 };
+    if ((sev[s.sens_categoria] || 0) > (sev[t.sens_categoria] || 0)) t.sens_categoria = s.sens_categoria;
+    const sclS = parseFloat(s.scl_h317), sclT = parseFloat(t.scl_h317);
+    if (isFinite(sclS) && sclS > 0 && (!isFinite(sclT) || sclS < sclT)) t.scl_h317 = sclS;
+}
+
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 mongoose.connect(process.env.MONGO_URI)
@@ -317,13 +413,16 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
         - Le righe della tabella possono essere SPEZZATE tra due pagine: la classificazione di una sostanza può continuare
           in cima alla pagina successiva. Unisci sempre la continuazione alla sostanza della riga precedente e riporta
           TUTTI i codici H di quella sostanza (es. se a fine pagina c'è "Skin Sens." e a inizio pagina "1A H317", la sostanza ha H317 cat. 1A).
+        - Ogni sostanza deve comparire UNA SOLA VOLTA. Se il NOME di una sostanza è spezzato tra due pagine
+          (es. "(1S)2,6,6,-TRIMETHY" a fine pagina e "LBICYCLO-2-HEPTENE" a inizio pagina), ricomponi il nome completo
+          e crea un solo oggetto con il suo CAS.
         - In "clp" includi tutti i codici H (anche H314 per Skin Corr., H318 per Eye Dam., H400/H410/H411/H412 per l'ambiente).
         - In "sens_categoria" indica la categoria di Skin Sens. (1A, 1B o 1) se la sostanza ha H317, altrimenti "".
         - In "scl_h317" indica il limite di concentrazione specifico in % per Skin Sens. se la SDS lo riporta
           (es. "C >= 0,01%: Skin Sens. 1A H317" -> 0.01), altrimenti null.`;
 
         // 4. Inviamo il Prompt collegando il file appena caricato
-        const result = await model.generateContent([
+        const result = await generaConRiprova([
             {
                 fileData: {
                     mimeType: uploadResponse.file.mimeType,
@@ -339,18 +438,31 @@ app.post('/api/analyze-pdf', verifyToken, upload.single('sds_file'), async (req,
         // 6. Pulizia e Parsing della risposta JSON
         let jsonText = result.response.text();
         jsonText = jsonText.replace(/```json|```/g, "").trim();
+        const inizio = jsonText.indexOf('{'), fine = jsonText.lastIndexOf('}');
+        if (inizio > 0 || (fine >= 0 && fine < jsonText.length - 1)) jsonText = jsonText.slice(inizio, fine + 1);
         const analysisData = JSON.parse(jsonText);
+        const grezzi = Array.isArray(analysisData) ? analysisData : (analysisData.components || []);
+        const pulite = normalizzaSostanze(grezzi);
+        if (Array.isArray(analysisData)) { analysisData.length = 0; analysisData.push(...pulite.lista); }
+        else analysisData.components = pulite.lista;
+        if (pulite.avvisi.length) console.log("Righe unite:", pulite.avvisi);
 
         req.user.credits -= 1;
         await req.user.save();
 
-        res.json({ analysis: analysisData, remainingCredits: req.user.credits });
+        res.json({ analysis: analysisData, avvisiLettura: pulite.avvisi, remainingCredits: req.user.credits });
 
     } catch (error) {
         console.error("ERRORE METODO FILE MANAGER:", error);
         // Pulizia sicura in caso di crash
         if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-        res.status(500).json({ error: "Errore durante l'elaborazione tramite Google AI." });
+        if (erroreTemporaneo(error)) {
+            return res.status(503).json({ error: "Servizio IA momentaneamente sovraccarico. Riprova tra qualche minuto: nessun credito è stato scalato." });
+        }
+        if (error instanceof SyntaxError) {
+            return res.status(502).json({ error: "L'IA ha restituito una risposta non leggibile. Riprova: nessun credito è stato scalato." });
+        }
+        res.status(500).json({ error: "Errore durante l'elaborazione tramite Google AI. Nessun credito è stato scalato." });
     }
 });
 
@@ -426,7 +538,9 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         // Se i dati non lo permettono (minimi mancanti o somma minimi > 100), si torna
         // al criterio del massimo di tutti gli intervalli.
         // ------------------------------------------------------------------
-        const componenti = sostanze.map(s => {
+        const pulizia = normalizzaSostanze(sostanze);
+        const avvisiLettura = pulizia.avvisi;
+        const componenti = pulizia.lista.map(s => {
             const max = Math.max(0, parseFloat(s.concentrazione) || 0);
             let min = parseFloat(s.concentrazione_min);
             if (!isFinite(min) || min < 0 || min > max) min = max;
@@ -448,7 +562,23 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         // Concentrazione massima realistica della singola sostanza nella fragranza
         // Nomi da usare in etichetta (denominazione dell'Allegato VI CLP, dove esiste)
         const NOMI_ETICHETTA = {
-            '5989-27-5': 'd-limonene'
+            '5989-27-5': 'd-Limonene', '138-86-3': 'Limonene', '78-70-6': 'Linalool', '115-95-7': 'Linalyl acetate',
+            '97-53-0': 'Eugenol', '104-55-2': 'Cinnamal', '106-24-1': 'Geraniol', '118-58-1': 'Benzyl salicylate',
+            '107-75-5': 'Hydroxycitronellal', '122-40-7': 'Amyl cinnamal', '97-54-1': 'Isoeugenol', '106-22-9': 'Citronellol',
+            '5392-40-5': 'Citral', '101-86-0': 'Hexyl cinnamal', '91-64-5': 'Coumarin', '4602-84-0': 'Farnesol',
+            '104-54-1': 'Cinnamyl alcohol', '120-51-4': 'Benzyl benzoate', '100-51-6': 'Benzyl alcohol',
+            '127-51-5': 'Alpha-isomethyl ionone', '103-95-7': 'Cyclamen aldehyde', '106-23-0': 'Citronellal',
+            '54464-57-2': 'Tetramethyl acetyloctahydronaphthalenes', '32210-23-4': '4-tert-Butylcyclohexyl acetate',
+            '32388-55-9': 'Acetyl cedrene', '19870-74-7': 'Cedryl methyl ether', '470-82-6': 'Eucalyptol',
+            '7785-26-4': 'alpha-Pinene', '80-56-8': 'alpha-Pinene', '127-91-3': 'beta-Pinene', '7212-44-4': 'Nerolidol',
+            '141-12-8': 'Neryl acetate', '106-25-2': 'Nerol', '105-87-3': 'Geranyl acetate', '6259-76-3': 'Hexyl salicylate',
+            '93-28-7': 'Eugenyl acetate', '122-78-1': 'Phenylacetaldehyde', '6485-40-1': 'l-Carvone',
+            '111-80-8': 'Methyl 2-nonynoate', '111-12-6': 'Methyl 2-octynoate', '87-44-5': 'Caryophyllene',
+            '65416-14-0': 'Maltyl isobutyrate', '106-72-9': 'Melonal',
+            '8008-57-9': 'Citrus aurantium dulcis peel oil', '8022-15-9': 'Lavandula hybrida oil',
+            '8008-79-5': 'Mentha viridis leaf oil', '8000-46-2': 'Pelargonium graveolens oil',
+            '8007-75-8': 'Citrus aurantium bergamia peel oil', '8014-09-3': 'Pogostemon cablin oil',
+            '8000-34-8': 'Eugenia caryophyllus leaf oil', '8006-82-4': 'Piper nigrum fruit oil'
         };
 
         // Rete di sicurezza: sensibilizzanti cutanei noti (classificazione tipica delle SDS dei fornitori).
@@ -544,7 +674,8 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             c.codici.forEach(h => {
                 if (h === 'H317') {
                     // Nome in etichetta: sostanze >= 1/10 del limite di classificazione (0,1% per 1/1B, 0,01% per 1A)
-                    if (concProdotto > c.limiteH317 / 10) {
+                    // CLP Allegato II, 2.8: sostanza sensibilizzante in concentrazione PARI O SUPERIORE a 1/10 del limite
+                    if (concProdotto >= c.limiteH317 / 10 - 1e-9) {
                         const nomeEtichetta = NOMI_ETICHETTA[casSostanza] || s.nome;
                         if (!allergeniEtichetta.includes(nomeEtichetta)) allergeniEtichetta.push(nomeEtichetta);
                     }
@@ -645,6 +776,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             isSafe,
             motiviNonConformita,
             notaCalcolo,
+            avvisiLettura,
             listaH_finali,
             frasiH,
             frasiP,
