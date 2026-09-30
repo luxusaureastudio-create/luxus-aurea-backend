@@ -435,6 +435,11 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         }
 
         // Concentrazione massima realistica della singola sostanza nella fragranza
+        // Nomi da usare in etichetta (denominazione dell'Allegato VI CLP, dove esiste)
+        const NOMI_ETICHETTA = {
+            '5989-27-5': 'd-limonene'
+        };
+
         const maxSingolo = c => vincolo100 ? Math.min(c.max, c.min + margine) : c.max;
 
         // Somma pesata nel caso peggiore, espressa in % nel prodotto finito
@@ -489,7 +494,8 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             c.codici.forEach(h => {
                 if (h === 'H317') {
                     if (concProdotto > 0.1) {
-                        if (!allergeniEtichetta.includes(s.nome)) allergeniEtichetta.push(s.nome);
+                        const nomeEtichetta = NOMI_ETICHETTA[casSostanza] || s.nome;
+                        if (!allergeniEtichetta.includes(nomeEtichetta)) allergeniEtichetta.push(nomeEtichetta);
                     }
                     if (concProdotto >= 1.0) hasSensitizer = true;
                 }
@@ -523,11 +529,68 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         const listaH_finali = Array.from(codiciMiscela).sort();
         const scattaUFI = listaH_finali.some(h => h.startsWith('H3') || h.startsWith('H2'));
 
+        // ---------------- ELEMENTI DELL'ETICHETTA (CLP Allegati III e IV) ----------------
+        const TESTI_H = {
+            H315: 'Provoca irritazione cutanea.',
+            H317: 'Può provocare una reazione allergica cutanea.',
+            H318: 'Provoca gravi lesioni oculari.',
+            H319: 'Provoca grave irritazione oculare.',
+            H360: 'Può nuocere alla fertilità o al feto.',
+            H410: 'Molto tossico per gli organismi acquatici con effetti di lunga durata.',
+            H411: 'Tossico per gli organismi acquatici con effetti di lunga durata.',
+            H412: 'Nocivo per gli organismi acquatici con effetti di lunga durata.'
+        };
+        const frasiH = listaH_finali.map(h => ({ codice: h, testo: TESTI_H[h] || '' }));
+
+        // Avvertenza: PERICOLO prevale su ATTENZIONE; H411/H412 non richiedono avvertenza
+        const H_PERICOLO = ['H318', 'H360'];
+        const H_ATTENZIONE = ['H315', 'H317', 'H319', 'H410'];
+        let avvertenza = '';
+        if (listaH_finali.some(h => H_PERICOLO.includes(h))) avvertenza = 'PERICOLO';
+        else if (listaH_finali.some(h => H_ATTENZIONE.includes(h))) avvertenza = 'ATTENZIONE';
+
+        // Consigli di prudenza per prodotto destinato al consumatore (candela).
+        // Ordine = priorità; massimo 6 frasi (CLP art. 28, par. 3).
+        const TESTI_P = {
+            'P101': "In caso di consultazione di un medico, tenere a disposizione il contenitore o l'etichetta del prodotto.",
+            'P102': 'Tenere fuori dalla portata dei bambini.',
+            'P201': "Procurarsi istruzioni specifiche prima dell'uso.",
+            'P280': 'Indossare guanti protettivi.',
+            'P302+P352': 'IN CASO DI CONTATTO CON LA PELLE: lavare abbondantemente con acqua e sapone.',
+            'P305+P351+P338': 'IN CASO DI CONTATTO CON GLI OCCHI: sciacquare accuratamente per parecchi minuti. Togliere le eventuali lenti a contatto se è agevole farlo. Continuare a sciacquare.',
+            'P308+P313': 'IN CASO di esposizione o di possibile esposizione, consultare un medico.',
+            'P310': 'Contattare immediatamente un CENTRO ANTIVELENI o un medico.',
+            'P332+P313': 'In caso di irritazione della pelle: consultare un medico.',
+            'P333+P313': 'In caso di irritazione o eruzione della pelle: consultare un medico.',
+            'P337+P313': "Se l'irritazione degli occhi persiste, consultare un medico.",
+            'P273': "Non disperdere nell'ambiente.",
+            'P501': 'Smaltire il prodotto/recipiente in conformità alla regolamentazione locale.'
+        };
+        const haH = h => listaH_finali.includes(h);
+        const haSalute = listaH_finali.some(h => h.startsWith('H3'));
+        const haAmbiente = listaH_finali.some(h => h.startsWith('H4'));
+        const codiciP = [];
+        const aggiungiP = p => { if (!codiciP.includes(p)) codiciP.push(p); };
+        if (haSalute) { aggiungiP('P102'); aggiungiP('P101'); }
+        if (haH('H360')) { aggiungiP('P201'); aggiungiP('P308+P313'); }
+        if (haH('H318')) { aggiungiP('P280'); aggiungiP('P305+P351+P338'); aggiungiP('P310'); }
+        if (haH('H317') || haH('H315')) aggiungiP('P302+P352');
+        if (haH('H317')) aggiungiP('P333+P313');
+        else if (haH('H315')) aggiungiP('P332+P313');
+        if (haH('H319')) { aggiungiP('P305+P351+P338'); aggiungiP('P337+P313'); }
+        if (haAmbiente) aggiungiP('P273');
+        if (haSalute || haAmbiente) aggiungiP('P501');
+        if (haH('H317')) aggiungiP('P280');
+        const frasiP = codiciP.slice(0, 6).map(p => ({ codice: p, testo: TESTI_P[p] }));
+
         res.json({
             isSafe,
             motiviNonConformita,
             notaCalcolo,
             listaH_finali,
+            frasiH,
+            frasiP,
+            avvertenza,
             scattaUFI,
             allergeniEtichetta,
             hasRepro,

@@ -137,6 +137,9 @@ async function runAnalysis() {
     let containsEndocrine = false;
     let motiviNonConformita = [];
     let notaCalcolo = '';
+    let frasiH = [];
+    let frasiP = [];
+    let avvertenza = '';
 
     try {
         const compRes = await fetch(`${BASE_URL}/api/calculate-compliance`, {
@@ -154,6 +157,9 @@ async function runAnalysis() {
             containsEndocrine = comp.containsEndocrine;
             motiviNonConformita = comp.motiviNonConformita || [];
             notaCalcolo = comp.notaCalcolo || '';
+            frasiH = comp.frasiH || [];
+            frasiP = comp.frasiP || [];
+            avvertenza = comp.avvertenza || '';
         } else {
             alert("Errore nel calcolo della conformità. Riprova.");
             return;
@@ -167,8 +173,18 @@ async function runAnalysis() {
     let pittogrammiHTML = generaIconeGHS(listaH_finali);
 
     let frasiEtichetta = [];
-    if (allergeniEtichetta.length > 0) frasiEtichetta.push(`<strong>CONTIENE:</strong> ${allergeniEtichetta.map(escapeHTML).join(', ')}.<br><span style="font-size:10px; font-style:italic;">Può provocare una reazione allergica.</span>`);
-    if (listaH_finali.includes('H360')) frasiEtichetta.push(`<strong style="color:#b91c1c;">⚠️ H360:</strong> Può nuocere alla fertilità o al feto.`);
+    if (allergeniEtichetta.length > 0) {
+        if (listaH_finali.includes('H317')) {
+            // Miscela classificata H317: si indicano le sostanze sensibilizzanti (CLP art. 18)
+            frasiEtichetta.push(`<strong>CONTIENE:</strong> ${allergeniEtichetta.map(escapeHTML).join(', ')}.`);
+        } else {
+            // Miscela non classificata H317: frase EUH208
+            frasiEtichetta.push(`<strong>CONTIENE:</strong> ${allergeniEtichetta.map(escapeHTML).join(', ')}. <span style="font-style:italic;">Può provocare una reazione allergica.</span>`);
+        }
+    }
+    if (frasiP.length > 0) {
+        frasiEtichetta.push(frasiP.map(p => `<strong>${escapeHTML(p.codice)}</strong> ${escapeHTML(p.testo)}`).join('<br>'));
+    }
     if (containsEndocrine) frasiEtichetta.push(`<strong style="color:#b91c1c;">⚠️ CONTIENE INTERFERENTI ENDOCRINI (Reg. 2023/707)</strong>`);
 
     const colori = ['#b59a5b', '#1e293b', '#475569', '#94a3b8', '#cbd5e1', '#e2e8f0'];
@@ -199,7 +215,8 @@ resultsDiv.innerHTML = `
                     </div>
                     
                     <div style="color:#b91c1c; font-weight:bold; text-align:center; font-size:12px; margin-bottom:10px;">
-                        ${listaH_finali.join(', ') || 'NESSUN PERICOLO CLASSIFICATO'}
+                        ${avvertenza ? `<div style="font-size:16px; letter-spacing:1px; margin-bottom:6px;">${escapeHTML(avvertenza)}</div>` : ''}
+                        ${frasiH.length ? frasiH.map(h => `<div style="font-size:11px;">${escapeHTML(h.codice)} ${escapeHTML(h.testo)}</div>`).join('') : (listaH_finali.join(', ') || 'NESSUN PERICOLO CLASSIFICATO')}
                     </div>
                     
                     <div style="font-size:10px; border-top:1px solid #000; padding-top:10px; margin-bottom:20px;">
