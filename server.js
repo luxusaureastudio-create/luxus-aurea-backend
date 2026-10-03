@@ -751,7 +751,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
 
         let isSafe = true;
         let allergeniEtichetta = [];
-        let hasSensitizer = false, hasRepro = false, containsEndocrine = false;
+        let hasSensitizer = false, hasRepro = false, hasRepro2 = false, containsEndocrine = false;
         let forzaH412Precauzione = false;
 
         componenti.forEach(c => {
@@ -791,9 +791,21 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
                     if (concProdotto >= c.limiteH317) hasSensitizer = true;
                 }
                 if (h === 'H360' && concProdotto >= 0.3) hasRepro = true;
+                // CLP Allegato I, tab. 3.7.2: limite generico Repr. Cat. 2 (H361) nel prodotto finito = 3%
+                if (h === 'H361' && concProdotto >= 3.0) hasRepro2 = true;
                 if (h === 'EUH380' || h === 'EUH440') containsEndocrine = true;
             });
         });
+
+        // Sommatoria sensibilizzanti cutanei (CLP Allegato I, nota alla tabella 3.4.6): anche se
+        // nessuna sostanza supera da sola la propria soglia individuale (controllo sopra), la miscela
+        // va comunque classificata come sensibilizzante quando la somma pesata di più sensibilizzanti
+        // diversi supera la soglia generica — stessa logica "a cascata" già usata sotto per l'ambiente
+        // acquatico (le sostanze Cat. 1A pesano 10 volte quelle Cat. 1B/1, come da nota ufficiale).
+        const sumSens1A = casoPeggiore(c => (c.codici.includes('H317') && c.sensCat === '1A') ? 1 : 0);
+        const sumSens1BoPlain = casoPeggiore(c => (c.codici.includes('H317') && c.sensCat && c.sensCat !== '1A') ? 1 : 0);
+        if (sumSens1A >= 0.1) hasSensitizer = true;
+        else if ((sumSens1A * 10) + sumSens1BoPlain >= 1.0) hasSensitizer = true;
 
         // Somme additive nel caso peggiore (ognuna calcolata per la propria classe di pericolo)
         // Categoria 1 pelle/occhi: H314 (corrosivo) conta anche come danno oculare grave
@@ -816,6 +828,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         if (!codiciMiscela.has('H314') && sumH315 >= 10.0) codiciMiscela.add('H315');
         if (hasSensitizer) codiciMiscela.add('H317');
         if (hasRepro) codiciMiscela.add('H360');
+        else if (hasRepro2) codiciMiscela.add('H361');
 
         if (sumH410 >= 25.0) codiciMiscela.add('H410');
         else if (testH411 >= 25.0) codiciMiscela.add('H411');
@@ -834,6 +847,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             H318: 'Provoca gravi lesioni oculari.',
             H319: 'Provoca grave irritazione oculare.',
             H360: 'Può nuocere alla fertilità o al feto.',
+            H361: 'Sospettato di nuocere alla fertilità o al feto.',
             H410: 'Molto tossico per gli organismi acquatici con effetti di lunga durata.',
             H411: 'Tossico per gli organismi acquatici con effetti di lunga durata.',
             H412: 'Nocivo per gli organismi acquatici con effetti di lunga durata.'
@@ -842,7 +856,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
 
         // Avvertenza: PERICOLO prevale su ATTENZIONE; H411/H412 non richiedono avvertenza
         const H_PERICOLO = ['H314', 'H318', 'H360'];
-        const H_ATTENZIONE = ['H315', 'H317', 'H319', 'H410'];
+        const H_ATTENZIONE = ['H315', 'H317', 'H319', 'H361', 'H410'];
         let avvertenza = '';
         if (listaH_finali.some(h => H_PERICOLO.includes(h))) avvertenza = 'PERICOLO';
         else if (listaH_finali.some(h => H_ATTENZIONE.includes(h))) avvertenza = 'ATTENZIONE';
@@ -871,7 +885,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         const codiciP = [];
         const aggiungiP = p => { if (!codiciP.includes(p)) codiciP.push(p); };
         if (haSalute) { aggiungiP('P102'); aggiungiP('P101'); }
-        if (haH('H360')) { aggiungiP('P201'); aggiungiP('P308+P313'); }
+        if (haH('H360') || haH('H361')) { aggiungiP('P201'); aggiungiP('P308+P313'); }
         if (haH('H314')) { aggiungiP('P280'); aggiungiP('P303+P361+P353'); aggiungiP('P305+P351+P338'); aggiungiP('P310'); }
         if (haH('H318')) { aggiungiP('P280'); aggiungiP('P305+P351+P338'); aggiungiP('P310'); }
         if (haH('H317') || haH('H315')) aggiungiP('P302+P352');
@@ -894,6 +908,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             scattaUFI,
             allergeniEtichetta,
             hasRepro,
+            hasRepro2,
             containsEndocrine
         });
 
