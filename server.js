@@ -85,9 +85,8 @@ if (session.metadata && session.metadata.tipo_acquisto === 'pacchetto_app' && se
                     console.log(`✅ Crediti aggiornati per ${user._id}: +${crediti}`);
                     
                     try {
-                        await sgMail.send({
+                        await inviaEmail({
                             to: session.customer_details.email,
-                            from: 'luxusaureastudio@gmail.com',
                             subject: 'Conferma acquisto crediti',
                             text: `Crediti accreditati: ${crediti}`
                         });
@@ -281,6 +280,37 @@ function unisci(t, s, continuazione = false) {
 
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
+// ==========================================
+// INVIO EMAIL: Brevo (se BREVO_API_KEY è impostata), altrimenti SendGrid
+// ==========================================
+const MAIL_FROM = process.env.MAIL_FROM || 'luxusaureastudio@gmail.com';
+const MAIL_FROM_NAME = process.env.MAIL_FROM_NAME || 'Luxus Aurea Studio';
+async function inviaEmail({ to, subject, text, html }) {
+    if (process.env.BREVO_API_KEY) {
+        const risposta = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                'api-key': process.env.BREVO_API_KEY,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                sender: { email: MAIL_FROM, name: MAIL_FROM_NAME },
+                to: [{ email: to }],
+                subject,
+                textContent: text,
+                htmlContent: html || `<p>${String(text || '').replace(/</g, '&lt;')}</p>`
+            })
+        });
+        if (!risposta.ok) {
+            const dettaglio = await risposta.text();
+            throw new Error(`Brevo ${risposta.status}: ${dettaglio}`);
+        }
+        return;
+    }
+    await sgMail.send({ to, from: MAIL_FROM, subject, text, html });
+}
+
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log("✅ Connesso a MongoDB"))
     .catch(err => { console.error("❌ ERRORE CRITICO DB:", err); });
@@ -388,20 +418,19 @@ app.post('/api/request-reset', async (req, res) => {
     // Log per debug
     console.log("LINK DI RESET GENERATO:", resetLink);
     
-    // Invio Email con SendGrid
+    // Invio Email (Brevo o SendGrid)
     const msg = {
         to: email,
-        from: 'luxusaureastudio@gmail.com', 
         subject: 'Reset Password - Luxus Aurea',
         text: `Clicca qui per resettare la password: ${resetLink}`,
         html: `<p>Clicca sul link sottostante per resettare la tua password:</p><a href="${resetLink}">Reset Password</a>`
     };
 
     try {
-        await sgMail.send(msg);
+        await inviaEmail(msg);
         res.json({ success: true, message: "Email inviata con successo." });
     } catch (e) {
-        console.error("Errore SendGrid:", e);
+        console.error("Errore invio email:", e.message || e);
         // Se SendGrid fallisce, restituiamo comunque il link nei log per non bloccare l'utente
         res.status(500).json({ error: "Errore invio email, contatta l'assistenza." });
     }
