@@ -826,15 +826,9 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             });
         });
 
-        // Sommatoria sensibilizzanti cutanei (CLP Allegato I, nota alla tabella 3.4.6): anche se
-        // nessuna sostanza supera da sola la propria soglia individuale (controllo sopra), la miscela
-        // va comunque classificata come sensibilizzante quando la somma pesata di più sensibilizzanti
-        // diversi supera la soglia generica — stessa logica "a cascata" già usata sotto per l'ambiente
-        // acquatico (le sostanze Cat. 1A pesano 10 volte quelle Cat. 1B/1, come da nota ufficiale).
-        const sumSens1A = casoPeggiore(c => (c.codici.includes('H317') && c.sensCat === '1A') ? 1 : 0);
-        const sumSens1BoPlain = casoPeggiore(c => (c.codici.includes('H317') && c.sensCat && c.sensCat !== '1A') ? 1 : 0);
-        if (sumSens1A >= 0.1) hasSensitizer = true;
-        else if ((sumSens1A * 10) + sumSens1BoPlain >= 1.0) hasSensitizer = true;
+        // NOTA: la sensibilizzazione cutanea (H317) NON è additiva (CLP Allegato I, 3.4.3.3):
+        // la miscela è classificata solo se UNA singola sostanza raggiunge il proprio limite
+        // (1% per Cat. 1/1B, 0,1% per Cat. 1A, o limite specifico). Nessuna sommatoria.
 
         // Somme additive nel caso peggiore (ognuna calcolata per la propria classe di pericolo)
         // Categoria 1 pelle/occhi: H314 (corrosivo) conta anche come danno oculare grave

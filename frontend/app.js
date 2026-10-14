@@ -43,7 +43,7 @@ function generaIconeGHS(listaH) {
     
     const hasGHS05 = listaH.some(h => h === 'H318' || h === 'H314');
     const hasGHS07 = listaH.some(h => ['H317', 'H315', 'H319'].includes(h));
-    const hasGHS08 = listaH.some(h => h === 'H360');
+    const hasGHS08 = listaH.some(h => h === 'H360' || h === 'H361');
     const hasGHS09 = listaH.some(h => ['H400', 'H410', 'H411'].includes(h));
 
     if (hasGHS05) html += `<div style="text-align:center;"><img src="icons/ghs05.png" style="height:60px;"><br><small style="font-size:8px;">GHS05</small></div>`;
