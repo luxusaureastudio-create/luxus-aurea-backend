@@ -782,6 +782,7 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
         let allergeniEtichetta = [];
         let hasSensitizer = false, hasRepro = false, hasRepro2 = false, containsEndocrine = false;
         let forzaH412Precauzione = false;
+        let sensCatMiscela = ''; // categoria piu' severa (1A/1B/1) tra le sostanze che superano il proprio limiteH317
 
         componenti.forEach(c => {
             const s = c.s;
@@ -817,7 +818,12 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
                         const nomeEtichetta = NOMI_ETICHETTA[casSostanza] || s.nome;
                         if (!allergeniEtichetta.includes(nomeEtichetta)) allergeniEtichetta.push(nomeEtichetta);
                     }
-                    if (concProdotto >= c.limiteH317) hasSensitizer = true;
+                    if (concProdotto >= c.limiteH317) {
+                        hasSensitizer = true;
+                        // CLP Allegato I, 3.4.3.3.1: se piu' sostanze innescano la classificazione,
+                        // la miscela prende la sottocategoria piu' severa (1A > 1 > 1B)
+                        if (!sensCatMiscela || severita[c.sensCat] > severita[sensCatMiscela]) sensCatMiscela = c.sensCat;
+                    }
                 }
                 if (h === 'H360' && concProdotto >= 0.3) hasRepro = true;
                 // CLP Allegato I, tab. 3.7.2: limite generico Repr. Cat. 2 (H361) nel prodotto finito = 3%
@@ -932,7 +938,8 @@ app.post('/api/calculate-compliance', verifyToken, async (req, res) => {
             allergeniEtichetta,
             hasRepro,
             hasRepro2,
-            containsEndocrine
+            containsEndocrine,
+            categoriaH317: sensCatMiscela // '1A' | '1B' | '1' | '' — sottocategoria Skin Sens. della miscela (Allegato I CLP 3.4.3.3.1)
         });
 
     } catch (error) {
