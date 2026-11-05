@@ -141,6 +141,7 @@ async function runAnalysis() {
     let frasiH = [];
     let frasiP = [];
     let avvertenza = '';
+    let categoriaH317 = '';
 
     try {
         const compRes = await fetch(`${BASE_URL}/api/calculate-compliance`, {
@@ -162,6 +163,7 @@ async function runAnalysis() {
             frasiH = comp.frasiH || [];
             frasiP = comp.frasiP || [];
             avvertenza = comp.avvertenza || '';
+            categoriaH317 = comp.categoriaH317 || '';
         } else {
             alert("Errore nel calcolo della conformità. Riprova.");
             return;
@@ -219,7 +221,7 @@ resultsDiv.innerHTML = `
                     
                     <div style="color:${listaH_finali.length ? '#b91c1c' : '#475569'}; font-weight:bold; text-align:center; font-size:12px; margin-bottom:10px;">
                         ${avvertenza ? `<div style="font-size:16px; letter-spacing:1px; margin-bottom:6px;">${escapeHTML(avvertenza)}</div>` : ''}
-                        ${frasiH.length ? frasiH.map(h => `<div style="font-size:11px;">${escapeHTML(h.codice)} ${escapeHTML(h.testo)}</div>`).join('') : (listaH_finali.join(', ') || 'NESSUN PERICOLO CLASSIFICATO')}
+                        ${frasiH.length ? frasiH.map(h => `<div style="font-size:11px;">${escapeHTML(h.codice)}${h.codice === 'H317' && categoriaH317 ? ` (Skin Sens. ${escapeHTML(categoriaH317)})` : ''} ${escapeHTML(h.testo)}</div>`).join('') : (listaH_finali.join(', ') || 'NESSUN PERICOLO CLASSIFICATO')}
                     </div>
                     
                     <div style="font-size:10px; border-top:1px solid #000; padding-top:10px; margin-bottom:20px;">
